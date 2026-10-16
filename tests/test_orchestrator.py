@@ -52,7 +52,6 @@ async def test_orchestrator_successful_self_correction_loop(fixture_repo, tmp_pa
         max_retries=3,
         mode="standalone",
     )
-
     assert result.status == "SUCCESS"
     assert result.retries_used == 1
     assert result.final_report is not None

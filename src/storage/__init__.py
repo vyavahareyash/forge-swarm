@@ -7,6 +7,8 @@ from src.storage.db import (
     record_turn_tokens,
     extend_task_budget,
     get_turn_history,
+    record_slack_event,
+    get_slack_events,
 )
 
 __all__ = [
@@ -17,4 +19,6 @@ __all__ = [
     "record_turn_tokens",
     "extend_task_budget",
     "get_turn_history",
+    "record_slack_event",
+    "get_slack_events",
 ]

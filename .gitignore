@@ -46,3 +46,4 @@ tests/fixtures/sample_repo/
 .DS_Store
 .idea/
 .vscode/
+*.code-workspace

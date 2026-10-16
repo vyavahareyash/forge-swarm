@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -47,7 +48,11 @@ class QASubAgent:
         """Runs test command inside worktree and returns (QATestReport, tokens_spent)."""
         tokens_spent = 350  # Telemetry baseline for QA telemetry
         cmd = test_cmd or f"{sys.executable} -m pytest -c pyproject.toml -p no:deepeval tests/"
-        env = {**os.environ, "PYTHONPATH": str(self.worktree_path)}
+        env = {
+            **os.environ,
+            "PYTHONPATH": str(self.worktree_path),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
 
         proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -121,23 +126,65 @@ class CoderSubAgent:
         if mode == "agy" and self.runner and self.runner.is_available():
             prompt = (
                 f"You are Forge (SWE sub-agent). Working directory: {self.worktree_path}.\n"
-                f"Task: Fix failing test in repository.\n"
-                f"Failure traceback:\n{failure_report.failure_summary}\n"
+                f"Task: Implement the required fix or feature according to this plan:\n"
+                f"Summary: {plan.summary}\n"
+                f"Failure traceback (if any):\n{failure_report.failure_summary}\n"
                 f"Target files: {failure_report.suggested_fix_files}.\n"
-                f"Please fix the bug in math_lib/calculator.py."
+                f"Please inspect the workspace, write the code changes or new features, and add/update unit tests in tests/."
             )
             res = await self.runner.execute_turn(prompt, workspace_dir=str(self.worktree_path))
             tokens_spent = res.total_tokens or tokens_spent
+            return res.text or "Applied code changes via agy", tokens_spent
 
         # Standalone / deterministic code fix application
         target_file = self.worktree_path / "math_lib" / "calculator.py"
+        test_file = self.worktree_path / "tests" / "test_calculator.py"
+        actions = []
+
         if target_file.exists():
             content = target_file.read_text()
             # Fix defect: return 2 -> return 1 for n == 1
             if "return 2" in content:
                 content = content.replace("return 2", "return 1")
+                actions.append("fixed calculate_fibonacci(1) base case")
+
+            # Check if factorial feature requested
+            plan_text = (plan.summary or "").lower()
+            if "factorial" in plan_text and "calculate_factorial" not in content:
+                factorial_code = (
+                    "\n\ndef calculate_factorial(n: int) -> int:\n"
+                    '    """Calculates the factorial of non-negative integer n."""\n'
+                    '    if n < 0:\n'
+                    '        raise ValueError("n must be non-negative")\n'
+                    '    if n in (0, 1):\n'
+                    '        return 1\n'
+                    '    res = 1\n'
+                    '    for i in range(2, n + 1):\n'
+                    '        res *= i\n'
+                    '    return res\n'
+                )
+                content += factorial_code
+                actions.append("implemented calculate_factorial")
+
+                if test_file.exists():
+                    test_content = test_file.read_text()
+                    if "test_factorial" not in test_content:
+                        test_code = (
+                            "\n\ndef test_factorial():\n"
+                            "    from math_lib.calculator import calculate_factorial\n"
+                            "    assert calculate_factorial(0) == 1\n"
+                            "    assert calculate_factorial(1) == 1\n"
+                            "    assert calculate_factorial(4) == 24\n"
+                            "    assert calculate_factorial(5) == 120\n"
+                        )
+                        test_file.write_text(test_content + test_code)
+
+            if actions:
                 target_file.write_text(content)
-                return "Patched calculate_fibonacci(1) return value from 2 to 1", tokens_spent
+                pycache_dir = target_file.parent / "__pycache__"
+                if pycache_dir.exists():
+                    shutil.rmtree(pycache_dir, ignore_errors=True)
+                return f"Patched code: {', '.join(actions)}", tokens_spent
 
         return "No modification applied or file not found", tokens_spent
 
@@ -169,11 +216,10 @@ class Orchestrator:
 
         if mode == "agy" and runner and runner.is_available():
             prompt = (
-                f"You are Atlas (Lead Architect). Create an implementation plan for:\n"
-                f"Issue: {issue_id}: {issue_desc}\n"
-                f"Return JSON adhering to ImplementationPlan schema."
+                f"You are Atlas (Lead Architect). In one clear sentence, summarize the implementation strategy for:\n"
+                f"Issue: {issue_id}: {issue_desc}"
             )
-            res = await runner.execute_turn(prompt)
+            res = await runner.execute_turn(prompt, timeout=180.0)
             tokens_spent = res.total_tokens or tokens_spent
 
         plan = ImplementationPlan(

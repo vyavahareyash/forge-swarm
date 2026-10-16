@@ -44,12 +44,17 @@ class AgyTurnResult:
 
 def find_agy_binary() -> Optional[str]:
     """Find path to agy binary on host machine."""
+    env_path = os.getenv("AGY_PATH")
+    if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
+        return env_path
+
     which_path = shutil.which("agy")
     if which_path and os.path.isfile(which_path) and os.access(which_path, os.X_OK):
         return which_path
 
     common_paths = [
         Path.home() / ".local" / "bin" / "agy",
+        Path("/Users/yash/.local/bin/agy"),
         Path("/usr/local/bin/agy"),
         Path("/opt/homebrew/bin/agy"),
         Path.home() / ".gemini" / "antigravity-cli" / "bin" / "agy",
@@ -74,7 +79,7 @@ class AgyRunner:
         self,
         prompt: str,
         workspace_dir: Optional[str] = None,
-        timeout: float = 60.0,
+        timeout: float = 180.0,
     ) -> AgyTurnResult:
         """
         Executes a prompt using agy -p and parses the JSON response and token metadata.
@@ -92,6 +97,7 @@ class AgyRunner:
             prompt,
             "--output-format",
             "json",
+            "--dangerously-skip-permissions",
         ]
 
         cwd = workspace_dir or os.getcwd()

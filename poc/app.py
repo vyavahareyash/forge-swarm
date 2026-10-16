@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Ensure repo root is on sys.path
@@ -58,6 +59,8 @@ from src.slack.approvals import (
     build_draft_pr_blocks,
 )
 from src.slack.bot import SlackWarRoomBot
+from src.triggers.github_poller import GitHubIssue, GitHubPoller
+from src.pipeline import E2EPipeline
 
 # Page configuration
 st.set_page_config(
@@ -185,7 +188,7 @@ with st.sidebar:
 
 
 # --- TAB NAVIGATION ---
-tab_runtime, tab_policies, tab_budget, tab_swarm, tab_db, tab_slack = st.tabs(
+tab_runtime, tab_policies, tab_budget, tab_swarm, tab_db, tab_slack, tab_pipeline = st.tabs(
     [
         "⚡ 1. Runtime & Inference",
         "🛡️ 2. Safety Policy Engine",
@@ -193,6 +196,7 @@ tab_runtime, tab_policies, tab_budget, tab_swarm, tab_db, tab_slack = st.tabs(
         "🤖 4. Persona Swarm Stepper",
         "🗄️ 5. SQLite State Explorer",
         "💬 6. Slack War-Room & Approvals",
+        "🚀 7. E2E Pipeline & GitHub Poller",
     ]
 )
 
@@ -840,7 +844,7 @@ with tab_slack:
         st.session_state.slack_thread_turns = []
         st.session_state.slack_gate_active = False
 
-        create_task(task_id, issue_id=selected_issue.split(":")[0], budget_limit=150_000, db_path=db_path)
+        create_task(task_id, issue_id=selected_issue.split(":")[0], budget_limit=150_000, db_path=DB_PATH)
 
         # Post / simulate root thread
         root_text = f"🚨 *Autonomous SWE Swarm Initialized:* `{selected_issue}`\nTask ID: `{task_id}` | Budget Limit: `150,000` tokens"
@@ -856,7 +860,7 @@ with tab_slack:
                 "ts": datetime.now().strftime("%H:%M:%S"),
             }
         )
-        record_turn_tokens(task_id, 1, 40_000, 10_000, 15_000, 65_000, db_path=db_path)
+        record_turn_tokens(task_id, 1, 40_000, 10_000, 15_000, 65_000, db_path=DB_PATH)
 
         # Sentinel Baseline
         st.session_state.slack_thread_turns.append(
@@ -866,7 +870,7 @@ with tab_slack:
                 "ts": datetime.now().strftime("%H:%M:%S"),
             }
         )
-        record_turn_tokens(task_id, 2, 20_000, 5_000, 10_000, 35_000, db_path=db_path)
+        record_turn_tokens(task_id, 2, 20_000, 5_000, 10_000, 35_000, db_path=DB_PATH)
 
         # Forge Patch
         st.session_state.slack_thread_turns.append(
@@ -876,11 +880,11 @@ with tab_slack:
                 "ts": datetime.now().strftime("%H:%M:%S"),
             }
         )
-        record_turn_tokens(task_id, 3, 30_000, 8_000, 12_000, 50_000, db_path=db_path)
+        record_turn_tokens(task_id, 3, 30_000, 8_000, 12_000, 50_000, db_path=DB_PATH)
 
         # Budget Ceiling Reached (150k / 150k)
         st.session_state.slack_gate_active = True
-        update_task_status(task_id, "PAUSED_BUDGET", db_path=db_path)
+        update_task_status(task_id, "PAUSED_BUDGET", db_path=DB_PATH)
         st.session_state.slack_thread_turns.append(
             {
                 "role": "warden",
@@ -925,13 +929,13 @@ with tab_slack:
                     gate_col1, gate_col2 = st.columns(2)
                     with gate_col1:
                         if st.button("⚡ Grant +50k Tokens", key="btn_grant_50k", type="primary", use_container_width=True):
-                            extend_task_budget(st.session_state.slack_active_task, additional_tokens=50_000, additional_turns=5, db_path=db_path)
+                            extend_task_budget(st.session_state.slack_active_task, additional_tokens=50_000, additional_turns=5, db_path=DB_PATH)
                             record_slack_event(
                                 event_type="grant_budget_50k",
                                 payload={"task_id": st.session_state.slack_active_task, "user": "StreamlitTester"},
                                 task_id=st.session_state.slack_active_task,
                                 user_id="U_STREAMLIT",
-                                db_path=db_path,
+                                db_path=DB_PATH,
                             )
                             st.session_state.slack_gate_active = False
                             st.session_state.slack_thread_turns.append(
@@ -959,13 +963,13 @@ with tab_slack:
 
                     with gate_col2:
                         if st.button("🛑 Abort Task", key="btn_abort_task", use_container_width=True):
-                            update_task_status(st.session_state.slack_active_task, "ABORTED", db_path=db_path)
+                            update_task_status(st.session_state.slack_active_task, "ABORTED", db_path=DB_PATH)
                             record_slack_event(
                                 event_type="abort_task",
                                 payload={"task_id": st.session_state.slack_active_task, "user": "StreamlitTester"},
                                 task_id=st.session_state.slack_active_task,
                                 user_id="U_STREAMLIT",
-                                db_path=db_path,
+                                db_path=DB_PATH,
                             )
                             st.session_state.slack_gate_active = False
                             st.session_state.slack_thread_turns.append(
@@ -1005,7 +1009,7 @@ with tab_slack:
                 payload={"text": steer_input, "task_id": st.session_state.slack_active_task},
                 task_id=st.session_state.slack_active_task,
                 user_id="U_STREAMLIT",
-                db_path=db_path,
+                db_path=DB_PATH,
             )
             st.success("Steering guidance injected!")
             st.rerun()
@@ -1013,9 +1017,188 @@ with tab_slack:
     # 4. Slack Events Audit Table
     st.markdown("---")
     st.subheader("📋 Slack Interaction Audit Ledger (`slack_events`)")
-    events = get_slack_events(db_path=db_path)
+    events = get_slack_events(db_path=DB_PATH)
     if events:
         st.dataframe(pd.DataFrame(events), use_container_width=True)
     else:
         st.info("No Slack events recorded yet.")
 
+
+
+# ==============================================================================
+# TAB 7: END-TO-END PIPELINE & GITHUB POLLER
+# ==============================================================================
+with tab_pipeline:
+    st.header("🚀 End-to-End Pipeline & GitHub Issue Delivery")
+    st.write(
+        "Demonstrates complete automated pipeline: GitHub issue polling → ephemeral worktree isolation → "
+        "multi-agent swarm resolution → Slack diff review → Block Kit approval → GitHub Draft PR delivery."
+    )
+
+    env_repo = os.getenv("GITHUB_REPO", "vyavahareyash/sample-calc-repo")
+    env_target_path = os.getenv("TARGET_REPO_PATH", "/Users/yash/Documents/Repos/sample-calc-repo")
+    env_slack_chan = os.getenv("SLACK_CHANNEL_ID", "C0C9A1MSL95")
+
+    p_col1, p_col2, p_col3 = st.columns(3)
+    with p_col1:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <small style="opacity: 0.7;">Target GitHub Repo</small>
+                <div style="font-weight: 700; font-size: 1.1rem; color: #4A90E2;">{env_repo}</div>
+                <small style="opacity: 0.6;">Local: {Path(env_target_path).name}</small>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with p_col2:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <small style="opacity: 0.7;">Slack War-Room Channel</small>
+                <div style="font-weight: 700; font-size: 1.1rem; color: #10B981;">#{env_slack_chan}</div>
+                <small style="opacity: 0.6;">Multi-Persona Socket Mode</small>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with p_col3:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <small style="opacity: 0.7;">Task Budget Ceiling</small>
+                <div style="font-weight: 700; font-size: 1.1rem; color: #F59E0B;">150,000 tokens</div>
+                <small style="opacity: 0.6;">Max Retries: 3 turns</small>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+    st.subheader("📥 Discovered 'agent-ready' Issues")
+
+    if "poller_issues" not in st.session_state:
+        st.session_state.poller_issues = []
+
+    btn_fetch, btn_synth = st.columns(2)
+    with btn_fetch:
+        if st.button("🔄 Poll Live GitHub Issues (`gh issue list`)", use_container_width=True):
+            poller = GitHubPoller(repo=env_repo, db_path=DB_PATH)
+            fetched = poller.fetch_ready_issues()
+            if fetched:
+                st.session_state.poller_issues = [
+                    {"number": i.number, "title": i.title, "body": i.body, "labels": i.labels, "url": i.url}
+                    for i in fetched
+                ]
+                st.success(f"Found {len(fetched)} agent-ready issue(s) in {env_repo}!")
+            else:
+                st.info(f"No pending 'agent-ready' issues found in {env_repo}. Using Issue #1.")
+                st.session_state.poller_issues = [
+                    {
+                        "number": 1,
+                        "title": "Fix Fibonacci calculation defect",
+                        "body": "calculate_fibonacci(1) returns 2 instead of 1 causing tests to fail in test_calculator.py.",
+                        "labels": ["agent-ready"],
+                        "url": f"https://github.com/{env_repo}/issues/1",
+                    }
+                ]
+    with btn_synth:
+        if st.button("➕ Inject Synthetic Issue", use_container_width=True):
+            new_id = len(st.session_state.poller_issues) + 100
+            st.session_state.poller_issues.append(
+                {
+                    "number": new_id,
+                    "title": f"Synthetic Bug #{new_id}: Fix edge case in math_lib",
+                    "body": "Fix non-negative validation and base return value in calculator.py.",
+                    "labels": ["agent-ready"],
+                    "url": f"https://github.com/{env_repo}/issues/{new_id}",
+                }
+            )
+            st.success(f"Injected synthetic issue #{new_id}!")
+
+    if st.session_state.poller_issues:
+        st.dataframe(pd.DataFrame(st.session_state.poller_issues), use_container_width=True)
+    else:
+        st.info("Click 'Poll Live GitHub Issues' to query GitHub repository or inject a synthetic issue.")
+
+    st.markdown("---")
+    st.subheader("⚡ Execute Full End-to-End Pipeline")
+
+    exec_col1, exec_col2 = st.columns([3, 1])
+    with exec_col1:
+        if st.session_state.poller_issues:
+            issue_options = [f"Issue #{i['number']}: {i['title']}" for i in st.session_state.poller_issues]
+            chosen_issue_str = st.selectbox("Select issue to execute:", issue_options)
+            chosen_num = int(chosen_issue_str.split(":")[0].replace("Issue #", "").strip())
+            active_issue_dict = next(i for i in st.session_state.poller_issues if i["number"] == chosen_num)
+        else:
+            active_issue_dict = {
+                "number": 1,
+                "title": "Fix Fibonacci calculation defect",
+                "body": "calculate_fibonacci(1) returns 2 instead of 1 causing tests to fail.",
+                "labels": ["agent-ready"],
+                "url": f"https://github.com/{env_repo}/issues/1",
+            }
+            st.write(f"Defaulting to Issue #{active_issue_dict['number']}: {active_issue_dict['title']}")
+
+    with exec_col2:
+        exec_mode = st.radio("Target Environment:", ["Mock (Fixture)", "Live Target Repo"], index=1 if os.path.exists(env_target_path) else 0)
+        auto_signoff = st.checkbox("Auto-Approve Draft PR", value=True)
+
+    if st.button("🚀 Run Full Pipeline", type="primary", use_container_width=True):
+        selected_issue = GitHubIssue(
+            number=active_issue_dict["number"],
+            title=active_issue_dict["title"],
+            body=active_issue_dict["body"],
+            labels=active_issue_dict["labels"],
+            url=active_issue_dict.get("url"),
+        )
+
+        with st.status("Executing End-to-End Pipeline...", expanded=True) as status:
+            st.write("📥 **Stage 1: Ingesting Issue** & transitioning label to `agent-in-progress`...")
+            time.sleep(0.5)
+
+            target_path = env_target_path if exec_mode == "Live Target Repo" else str(ensure_sample_repo(reset=True))
+            poller_inst = GitHubPoller(repo=env_repo, db_path=DB_PATH) if exec_mode == "Live Target Repo" else None
+
+            pipeline = E2EPipeline(
+                target_repo_path=target_path,
+                poller=poller_inst,
+                db_path=DB_PATH,
+                mode="standalone",
+            )
+
+            st.write("📦 **Stage 2: Provisioning ephemeral Git worktree** (`./workspaces/issue-1`)...")
+            st.write("🤖 **Stage 3: Running Swarm Loop** (Atlas Architect -> Sentinel QA -> Forge Coder)...")
+
+            result = run_async(pipeline.execute_issue(issue=selected_issue, auto_approve_pr=auto_signoff))
+
+            st.write("🔍 **Stage 4: QA Verification Passed** & Git Diff committed to branch.")
+            if result.pr_url:
+                st.write(f"🚀 **Stage 5: GitHub Draft PR Created:** `{result.pr_url}`")
+            st.write("🧹 **Stage 6: Label transitioned to `agent-review` & worktree cleanly pruned.**")
+
+            status.update(label=f"Pipeline Completed: {result.status} 🎉", state="complete")
+            st.session_state["pipeline_last_result"] = result
+
+    if "pipeline_last_result" in st.session_state:
+        res = st.session_state["pipeline_last_result"]
+        st.markdown("### 📋 Pipeline Delivery Summary")
+        r_col1, r_col2, r_col3, r_col4 = st.columns(4)
+        with r_col1:
+            st.metric("Task ID", res.task_id)
+        with r_col2:
+            st.metric("Status", res.status)
+        with r_col3:
+            tokens_val = res.swarm_result.tokens_spent if res.swarm_result else 0
+            st.metric("Tokens Burned", f"{tokens_val:,}")
+        with r_col4:
+            retries_val = res.swarm_result.retries_used if res.swarm_result else 0
+            st.metric("Retries Needed", retries_val)
+
+        if res.pr_url:
+            st.success(f"🎉 **Verified Draft Pull Request Available:** [{res.pr_url}]({res.pr_url})")
+
+        if res.swarm_result and res.swarm_result.git_diff:
+            st.markdown("#### 📄 Git Diff")
+            st.code(res.swarm_result.git_diff, language="diff")

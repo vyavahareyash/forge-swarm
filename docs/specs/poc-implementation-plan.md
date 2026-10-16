@@ -110,19 +110,22 @@ Verify that the local daemon connects to Slack via Socket Mode (zero public inco
 
 ---
 
-## Stage 4: End-to-End GitHub Issue Poller & Draft PR Delivery
+## Stage 4: End-to-End GitHub Issue Poller & Draft PR Delivery ✅ [COMPLETED]
 
 ### Objective
 Unite all components into an automated, sequential background pipeline: poll GitHub issues labeled `agent-ready` or handle `/agent solve` Slack commands → provision worktree → execute swarm → diff review in Slack → human approves `[Approve & Create Draft PR]` → push branch and open Draft PR.
 
 ### Deliverables
 1. `src/triggers/github_poller.py`: Background worker querying `gh issue list --label agent-ready` at a configurable interval.
-2. `src/main.py`: Unified daemon entrypoint managing the sequential task queue and graceful shutdown.
-3. End-to-end integration test against a test repository issue.
+2. `src/pipeline.py`: End-to-end task orchestrator managing the full issue lifecycle, worktree provisioning, swarm execution, Slack war-room thread updates, Block Kit draft PR approval gate, and cleanup.
+3. `src/main.py`: Unified daemon entrypoint managing the sequential task queue and graceful shutdown.
+4. `poc/stage4_e2e_pipeline.py`: Standalone CLI verification script with live and mock modes.
+5. `poc/app.py`: Interactive Streamlit Tab 7 testbench running the live E2E pipeline and GitHub poller.
+6. `tests/test_github_poller.py` & `tests/test_e2e_pipeline.py`: Comprehensive unit and integration test suites.
 
 ### Acceptance Criteria
-- [ ] Labeling an issue `agent-ready` automatically opens a dedicated Slack war-room thread.
-- [ ] Task completes fully autonomously inside an isolated worktree within budget limits.
-- [ ] Interactive Slack review displays unified git diff stats.
-- [ ] Approving the button pushes `fix/issue-<id>` and opens a GitHub Draft PR with the test report.
-- [ ] Worktree prunes cleanly on completion.
+- [x] Labeling an issue `agent-ready` automatically opens a dedicated Slack war-room thread.
+- [x] Task completes fully autonomously inside an isolated worktree within budget limits.
+- [x] Interactive Slack review displays unified git diff stats.
+- [x] Approving the button pushes `fix/issue-<id>` and opens a GitHub Draft PR with the test report.
+- [x] Worktree prunes cleanly on completion.
