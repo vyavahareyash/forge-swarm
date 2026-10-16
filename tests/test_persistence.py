@@ -10,6 +10,7 @@ Verifies:
 6. Backward compatibility with legacy session JSON.
 7. End-to-end Orchestrator persistence loop.
 """
+
 import json
 import shutil
 import tempfile
@@ -60,7 +61,10 @@ def test_living_specs_table_schema(temp_storage):
         assert cursor.fetchone() is not None
 
         # Check table columns
-        cols = [r["name"] for r in conn.execute("PRAGMA table_info(living_specs);").fetchall()]
+        cols = [
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(living_specs);").fetchall()
+        ]
         assert "task_id" in cols
         assert "version" in cols
         assert "requirements" in cols
@@ -97,7 +101,10 @@ def test_living_spec_crud_and_versioning(temp_storage):
     assert loaded.task_id == task_id
     assert loaded.version == 1
     assert loaded.requirements == ["Acceptance criteria 1", "Acceptance criteria 2"]
-    assert loaded.architecture_decisions == ["Use SQLite WAL mode", "Adopt TurnRecord model"]
+    assert loaded.architecture_decisions == [
+        "Use SQLite WAL mode",
+        "Adopt TurnRecord model",
+    ]
     assert loaded.review_state["status"] == "IN_PROGRESS"
     assert loaded.open_questions == ["Should cache be in memory?"]
 
@@ -111,7 +118,10 @@ def test_living_spec_crud_and_versioning(temp_storage):
     assert updated is not None
     assert updated.version == 2
     assert updated.requirements == ["Updated criteria 1"]
-    assert updated.architecture_decisions == ["Use SQLite WAL mode", "Adopt TurnRecord model"]
+    assert updated.architecture_decisions == [
+        "Use SQLite WAL mode",
+        "Adopt TurnRecord model",
+    ]
     assert updated.review_state["status"] == "REVIEW_PASSED"
 
     # Reload from DB to ensure persisted
@@ -156,7 +166,9 @@ def test_session_manager_init_and_atomic_write(temp_storage):
     )
 
     task_id = "task-atomic-1"
-    create_task(task_id=task_id, issue_id="issue-atomic", db_path=temp_storage["db_path"])
+    create_task(
+        task_id=task_id, issue_id="issue-atomic", db_path=temp_storage["db_path"]
+    )
 
     spec = LivingSpec(
         task_id=task_id,
@@ -200,7 +212,9 @@ def test_append_turn_incremental_and_typed_records(temp_storage):
     )
 
     task_id = "task-turns-1"
-    create_task(task_id=task_id, issue_id="issue-turns", db_path=temp_storage["db_path"])
+    create_task(
+        task_id=task_id, issue_id="issue-turns", db_path=temp_storage["db_path"]
+    )
     sm.init_session(task_id=task_id, issue_id="issue-turns")
 
     turn1 = TurnRecord(
@@ -329,7 +343,9 @@ def test_format_prompt_context_with_sliding_window(temp_storage):
     )
 
     task_id = "task-prompt-ctx-1"
-    create_task(task_id=task_id, issue_id="issue-prompt-ctx", db_path=temp_storage["db_path"])
+    create_task(
+        task_id=task_id, issue_id="issue-prompt-ctx", db_path=temp_storage["db_path"]
+    )
 
     spec = LivingSpec(
         task_id=task_id,
@@ -439,7 +455,9 @@ async def test_orchestrator_persistence_integration(temp_storage):
     from src.worktree import WorktreeManager
     from tests.fixtures.sample_repo import ensure_sample_repo
 
-    repo_path = ensure_sample_repo(target_dir=temp_storage["dir"] / "sample_repo", reset=True)
+    repo_path = ensure_sample_repo(
+        target_dir=temp_storage["dir"] / "sample_repo", reset=True
+    )
     wm = WorktreeManager(workspace_root=str(temp_storage["dir"] / "workspaces"))
 
     orch = Orchestrator(
@@ -478,7 +496,9 @@ async def test_orchestrator_persistence_integration(temp_storage):
     session = orch.session_manager.load_session(task_id)
     assert session is not None
     assert session.status == "SUCCESS"
-    assert len(session.turns) >= 3  # Atlas plan, Sentinel initial test, Forge fix, Sentinel retest
+    assert (
+        len(session.turns) >= 3
+    )  # Atlas plan, Sentinel initial test, Forge fix, Sentinel retest
     assert session.living_spec is not None
 
     # Check rehydration from session
@@ -486,4 +506,3 @@ async def test_orchestrator_persistence_integration(temp_storage):
     assert rehydrated is not None
     assert rehydrated.living_spec.task_id == task_id
     assert len(rehydrated.recent_turns) == len(session.turns)
-

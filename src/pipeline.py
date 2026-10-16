@@ -10,6 +10,7 @@ Orchestrates the entire lifecycle for an issue:
 6. Git Branch Push & GitHub Draft PR Delivery (`gh pr create --draft`)
 7. Final Label Swap ('agent-in-progress' -> 'agent-review') & Worktree Pruning
 """
+
 import asyncio
 import logging
 import os
@@ -73,7 +74,9 @@ class E2EPipeline:
         mode: str = "standalone",
     ):
         self.target_repo_path = Path(
-            target_repo_path or os.getenv("TARGET_REPO_PATH") or os.path.abspath("tests/fixtures/sample_repo")
+            target_repo_path
+            or os.getenv("TARGET_REPO_PATH")
+            or os.path.abspath("tests/fixtures/sample_repo")
         ).resolve()
         self.db_path = db_path or os.path.abspath("storage/state.db")
         init_db(self.db_path)
@@ -112,7 +115,9 @@ class E2EPipeline:
         if self.poller:
             try:
                 self.poller.mark_in_progress(issue.number)
-                logger.info("Updated issue #%s label to 'agent-in-progress'", issue.number)
+                logger.info(
+                    "Updated issue #%s label to 'agent-in-progress'", issue.number
+                )
             except Exception as e:
                 logger.warning("Could not update issue label: %s", e)
 
@@ -157,7 +162,9 @@ class E2EPipeline:
                             "warden": "warden",
                         }
                         role = role_map.get(turn.role, "orchestrator")
-                        msg_text = f"*{turn.persona}:* {turn.action}\n```{turn.details}```"
+                        msg_text = (
+                            f"*{turn.persona}:* {turn.action}\n```{turn.details}```"
+                        )
                         await self.bot.post_agent(
                             role=role,
                             text=msg_text,
@@ -207,10 +214,14 @@ class E2EPipeline:
 
             # 5. Interactive Review & Approval Gate
             diff_stats = swarm_result.git_diff or "Changes committed to worktree."
-            test_summary = f"{swarm_result.final_report.total_tests} tests executed. 0 failed."
+            test_summary = (
+                f"{swarm_result.final_report.total_tests} tests executed. 0 failed."
+            )
 
             if on_status_update:
-                on_status_update("REVIEW_GATE", {"diff": diff_stats, "test_summary": test_summary})
+                on_status_update(
+                    "REVIEW_GATE", {"diff": diff_stats, "test_summary": test_summary}
+                )
 
             approved = auto_approve_pr
             if not auto_approve_pr and self.bot and thread_ts:
@@ -308,4 +319,6 @@ class E2EPipeline:
             # 7. Guaranteed Worktree Cleanup
             if worktree_path and worktree_path.exists():
                 logger.info("Cleaning up ephemeral worktree: %s", worktree_path)
-                self.wm.remove_worktree(self.target_repo_path, worktree_path, force=True)
+                self.wm.remove_worktree(
+                    self.target_repo_path, worktree_path, force=True
+                )

@@ -1,4 +1,5 @@
 """Lifecycle hooks for token metering, budget governance, and pause gates."""
+
 import asyncio
 import logging
 from collections.abc import Callable
@@ -29,10 +30,14 @@ class TurnUsage:
 
         if isinstance(metadata, dict):
             return cls(
-                prompt_tokens=metadata.get("prompt_token_count", 0) or metadata.get("prompt_tokens", 0),
-                candidates_tokens=metadata.get("candidates_token_count", 0) or metadata.get("candidates_tokens", 0),
-                thoughts_tokens=metadata.get("thoughts_token_count", 0) or metadata.get("thoughts_tokens", 0),
-                total_tokens=metadata.get("total_token_count", 0) or metadata.get("total_tokens", 0),
+                prompt_tokens=metadata.get("prompt_token_count", 0)
+                or metadata.get("prompt_tokens", 0),
+                candidates_tokens=metadata.get("candidates_token_count", 0)
+                or metadata.get("candidates_tokens", 0),
+                thoughts_tokens=metadata.get("thoughts_token_count", 0)
+                or metadata.get("thoughts_tokens", 0),
+                total_tokens=metadata.get("total_token_count", 0)
+                or metadata.get("total_tokens", 0),
             )
 
         # Object with attributes (Antigravity SDK UsageMetadata)
@@ -64,7 +69,8 @@ class BudgetGuard:
         budget_limit: int = 150_000,
         turn_limit: int = 15,
         db_path: str | None = None,
-        on_budget_exceeded: Callable[["BudgetGuard", dict[str, Any]], Any] | None = None,
+        on_budget_exceeded: Callable[["BudgetGuard", dict[str, Any]], Any]
+        | None = None,
     ):
         self.task_id = task_id
         self.budget_limit = budget_limit
@@ -158,7 +164,9 @@ class BudgetGuard:
         except TimeoutError:
             return False
 
-    def extend_budget(self, additional_tokens: int, additional_turns: int = 5) -> dict[str, Any]:
+    def extend_budget(
+        self, additional_tokens: int, additional_turns: int = 5
+    ) -> dict[str, Any]:
         """
         Grants additional tokens and unblocks the pause gate.
         """

@@ -6,7 +6,7 @@ Production multi-agent autonomous software engineering requires deep visibility 
 2. Agent history (token spend per turn, prompts, thoughts, completions).
 3. Agent-to-agent communication (Orchestrator to Coder specs, QA to Coder failure tracebacks).
 
-External SaaS APM tools (e.g. LangSmith) introduce 3rd-party cloud dependencies, potential code-diff IP exposure, and external latency. 
+External SaaS APM tools (e.g. LangSmith) introduce 3rd-party cloud dependencies, potential code-diff IP exposure, and external latency.
 
 ## Decision
 We adopt a 3-tier self-contained observability architecture:

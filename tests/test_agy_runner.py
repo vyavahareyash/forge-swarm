@@ -1,4 +1,5 @@
 """Unit tests for AgyRunner headless parser and error conditions."""
+
 import json
 
 import pytest
@@ -12,15 +13,17 @@ from src.agents.agy_runner import (
 def test_agy_runner_json_parsing():
     runner = AgyRunner(agy_path="/fake/agy")
 
-    json_output = json.dumps({
-        "response": "Here is the implementation plan.",
-        "usage_metadata": {
-            "prompt_token_count": 850,
-            "candidates_token_count": 320,
-            "thoughts_token_count": 150,
-            "total_token_count": 1320,
+    json_output = json.dumps(
+        {
+            "response": "Here is the implementation plan.",
+            "usage_metadata": {
+                "prompt_token_count": 850,
+                "candidates_token_count": 320,
+                "thoughts_token_count": 150,
+                "total_token_count": 1320,
+            },
         }
-    })
+    )
 
     result = runner._parse_json_output(json_output)
     assert result.text == "Here is the implementation plan."

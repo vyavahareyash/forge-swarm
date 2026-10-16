@@ -4,6 +4,7 @@ Antigravity CLI (agy) Headless Mode Runner.
 Executes prompts via `agy -p "<prompt>" --output-format json` to inherit
 the host machine's active Google AI subscription OAuth session with zero API keys.
 """
+
 import asyncio
 import json
 import os
@@ -15,11 +16,13 @@ from typing import Any
 
 class AgyNotInstalledError(RuntimeError):
     """Raised when agy CLI binary is not found on host."""
+
     pass
 
 
 class AgyAuthenticationError(RuntimeError):
     """Raised when agy CLI requires interactive login."""
+
     pass
 
 
@@ -113,20 +116,27 @@ class AgyRunner:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
             )
-        except TimeoutError:
+        except TimeoutError as err:
             proc.kill()
-            raise TimeoutError(f"agy prompt execution timed out after {timeout}s")
+            raise TimeoutError(
+                f"agy prompt execution timed out after {timeout}s"
+            ) from err
 
         stdout_text = stdout_bytes.decode("utf-8", errors="replace").strip()
         stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
 
         if proc.returncode != 0:
-            if "authentication required" in stderr_text.lower() or "login" in stderr_text.lower():
+            if (
+                "authentication required" in stderr_text.lower()
+                or "login" in stderr_text.lower()
+            ):
                 raise AgyAuthenticationError(
                     f"agy authentication required: {stderr_text}\n"
                     "Please run `agy` in your terminal to complete 1-time subscription OAuth login."
                 )
-            raise RuntimeError(f"agy execution failed (exit {proc.returncode}): {stderr_text or stdout_text}")
+            raise RuntimeError(
+                f"agy execution failed (exit {proc.returncode}): {stderr_text or stdout_text}"
+            )
 
         # Parse JSON output from stdout
         return self._parse_json_output(stdout_text)
@@ -136,7 +146,12 @@ class AgyRunner:
         try:
             data = json.loads(stdout_text)
             if isinstance(data, dict):
-                text = data.get("response") or data.get("text") or data.get("content") or ""
+                text = (
+                    data.get("response")
+                    or data.get("text")
+                    or data.get("content")
+                    or ""
+                )
                 usage = data.get("usage_metadata") or data.get("usage") or {}
                 prompt_tokens = (
                     usage.get("prompt_token_count")

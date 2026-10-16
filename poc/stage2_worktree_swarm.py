@@ -10,6 +10,7 @@ Verifies:
 6. Commit made on fix branch and worktree pruned cleanly.
 7. Full session trajectory persisted into storage/sessions/.
 """
+
 import asyncio
 import os
 import sys
@@ -79,7 +80,9 @@ async def run_stage2_poc(mode: str = "standalone") -> int:
     print("=" * 65)
 
     if result.status == "SUCCESS":
-        print("🎉 PoC Stage 2 verification SUCCESSFUL: Swarm self-corrected bug in worktree!")
+        print(
+            "🎉 PoC Stage 2 verification SUCCESSFUL: Swarm self-corrected bug in worktree!"
+        )
         return 0
     else:
         print(f"❌ PoC Stage 2 verification FAILED: Status is {result.status}")

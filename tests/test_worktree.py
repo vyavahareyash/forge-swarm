@@ -1,6 +1,7 @@
 """
 Unit tests for WorktreeManager and ephemeral worktree isolation (ADR 0002).
 """
+
 import subprocess
 
 import pytest

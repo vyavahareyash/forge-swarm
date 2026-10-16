@@ -4,6 +4,7 @@ Fixture Generator for Dedicated Sample Target Repository.
 Implements ADR 0005: Use Dedicated Fixture Sample Repository for Testing.
 Initializes a clean Git repository with a reproducible bug and failing pytest suite.
 """
+
 import os
 import shutil
 import subprocess
@@ -39,7 +40,7 @@ def calculate_fibonacci(n: int) -> int:
     if n == 1:
         # BUG: Deliberate defect: returns 2 instead of 1
         return 2
-    
+
     a, b = 0, 1
     for _ in range(2, n + 1):
         a, b = b, a + b
@@ -58,7 +59,7 @@ def calculate_fibonacci(n: int) -> int:
         return 0
     if n == 1:
         return 1
-    
+
     a, b = 0, 1
     for _ in range(2, n + 1):
         a, b = b, a + b
@@ -110,11 +111,28 @@ def ensure_sample_repo(target_dir: Path | None = None, reset: bool = False) -> P
     (tests_dir / "test_calculator.py").write_text(TEST_CALCULATOR_CONTENT)
 
     # Initialize Git
-    subprocess.run(["git", "init", "-b", "main"], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@npc-inc.local"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=repo_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test Runner"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@npc-inc.local"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit with math_lib defect"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit with math_lib defect"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+    )
 
     return repo_path
 

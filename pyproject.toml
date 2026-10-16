@@ -49,7 +49,9 @@ select = [
     "UP",   # pyupgrade
     "B",    # flake8-bugbear
 ]
-ignore = []
+ignore = [
+    "E501",  # line length handled by ruff format
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]

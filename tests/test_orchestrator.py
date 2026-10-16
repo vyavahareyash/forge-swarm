@@ -1,6 +1,7 @@
 """
 Unit & Integration tests for Orchestrator multi-agent self-correction swarm loop.
 """
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -65,7 +66,9 @@ async def test_orchestrator_successful_self_correction_loop(fixture_repo, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_max_retries_enforced_on_persistent_failure(fixture_repo, tmp_path):
+async def test_orchestrator_max_retries_enforced_on_persistent_failure(
+    fixture_repo, tmp_path
+):
     wm = WorktreeManager(workspace_root=str(tmp_path / "workspaces"))
     db_file = tmp_path / "test_state.db"
     sessions = tmp_path / "sessions"

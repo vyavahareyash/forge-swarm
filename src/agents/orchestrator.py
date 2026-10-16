@@ -8,6 +8,7 @@ Implements Stage 2: Multi-Agent Swarm with Tiered Thinking:
 
 Autonomous 3-retry self-correction loop against isolated worktrees.
 """
+
 import asyncio
 import os
 import re
@@ -47,7 +48,10 @@ class QASubAgent:
     async def run_tests(self, test_cmd: str | None = None) -> tuple[QATestReport, int]:
         """Runs test command inside worktree and returns (QATestReport, tokens_spent)."""
         tokens_spent = 350  # Telemetry baseline for QA telemetry
-        cmd = test_cmd or f"{sys.executable} -m pytest -c pyproject.toml -p no:deepeval tests/"
+        cmd = (
+            test_cmd
+            or f"{sys.executable} -m pytest -c pyproject.toml -p no:deepeval tests/"
+        )
         env = {
             **os.environ,
             "PYTHONPATH": str(self.worktree_path),
@@ -66,11 +70,10 @@ class QASubAgent:
         stderr_str = stderr.decode("utf-8", errors="replace")
         full_output = f"{stdout_str}\n{stderr_str}".strip()
 
-        passed = (proc.returncode == 0)
+        passed = proc.returncode == 0
 
         # Parse test metrics from pytest output
         total_tests = 0
-        failed_tests = 0
 
         # Pattern match e.g. "1 failed, 2 passed in 0.05s" or "3 passed in 0.05s"
         match_passed = re.search(r"(\d+)\s+passed", full_output)
@@ -89,7 +92,10 @@ class QASubAgent:
                 for part in line.split():
                     if ".py" in part:
                         file_clean = part.split(":")[0].strip()
-                        if file_clean not in suggested_files and (self.worktree_path / file_clean).exists():
+                        if (
+                            file_clean not in suggested_files
+                            and (self.worktree_path / file_clean).exists()
+                        ):
                             suggested_files.append(file_clean)
 
         if not suggested_files and not passed:
@@ -132,7 +138,9 @@ class CoderSubAgent:
                 f"Target files: {failure_report.suggested_fix_files}.\n"
                 f"Please inspect the workspace, write the code changes or new features, and add/update unit tests in tests/."
             )
-            res = await self.runner.execute_turn(prompt, workspace_dir=str(self.worktree_path))
+            res = await self.runner.execute_turn(
+                prompt, workspace_dir=str(self.worktree_path)
+            )
             tokens_spent = res.total_tokens or tokens_spent
             return res.text or "Applied code changes via agy", tokens_spent
 
@@ -154,14 +162,14 @@ class CoderSubAgent:
                 factorial_code = (
                     "\n\ndef calculate_factorial(n: int) -> int:\n"
                     '    """Calculates the factorial of non-negative integer n."""\n'
-                    '    if n < 0:\n'
+                    "    if n < 0:\n"
                     '        raise ValueError("n must be non-negative")\n'
-                    '    if n in (0, 1):\n'
-                    '        return 1\n'
-                    '    res = 1\n'
-                    '    for i in range(2, n + 1):\n'
-                    '        res *= i\n'
-                    '    return res\n'
+                    "    if n in (0, 1):\n"
+                    "        return 1\n"
+                    "    res = 1\n"
+                    "    for i in range(2, n + 1):\n"
+                    "        res *= i\n"
+                    "    return res\n"
                 )
                 content += factorial_code
                 actions.append("implemented calculate_factorial")
@@ -203,8 +211,9 @@ class Orchestrator:
         self.sessions_dir = Path(sessions_dir or os.path.abspath("storage/sessions"))
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         init_db(self.db_path)
-        self.session_manager = SessionManager(db_path=self.db_path, sessions_dir=str(self.sessions_dir))
-
+        self.session_manager = SessionManager(
+            db_path=self.db_path, sessions_dir=str(self.sessions_dir)
+        )
 
     async def plan_task(
         self,
@@ -363,8 +372,12 @@ class Orchestrator:
 
         try:
             # 2. Atlas Planning Turn
-            plan, plan_tokens = await self.plan_task(issue_id, issue_desc, mode=mode, runner=runner)
-            living_spec.architecture_decisions = [plan.summary] + [s.title for s in plan.subtasks]
+            plan, plan_tokens = await self.plan_task(
+                issue_id, issue_desc, mode=mode, runner=runner
+            )
+            living_spec.architecture_decisions = [plan.summary] + [
+                s.title for s in plan.subtasks
+            ]
             self.session_manager.update_living_spec(task_id, living_spec)
 
             log_turn(
@@ -373,9 +386,11 @@ class Orchestrator:
                 action="Generated ImplementationPlan",
                 thinking_level="HIGH",
                 tokens=plan_tokens,
-                details={"plan_summary": plan.summary, "subtasks_count": len(plan.subtasks)},
+                details={
+                    "plan_summary": plan.summary,
+                    "subtasks_count": len(plan.subtasks),
+                },
             )
-
 
             # 3. Sentinel Baseline QA Verification Turn
             qa_agent = QASubAgent(worktree_path)
@@ -437,7 +452,9 @@ class Orchestrator:
             git_diff = ""
             if final_report.passed:
                 status = "SUCCESS"
-                self.wm.commit_changes(worktree_path, f"fix({issue_id}): resolve defect verified by QA")
+                self.wm.commit_changes(
+                    worktree_path, f"fix({issue_id}): resolve defect verified by QA"
+                )
                 git_diff = self.wm.get_diff(worktree_path)
                 update_task_status(task_id, "COMPLETED", db_path=self.db_path)
             else:
@@ -478,7 +495,6 @@ class Orchestrator:
             )
 
             return result
-
 
         finally:
             if cleanup_worktree:

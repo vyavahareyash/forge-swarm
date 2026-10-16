@@ -7,6 +7,7 @@ Implements Stage 4 Issue Trigger:
 - Creates Draft PRs via `gh pr create --draft`.
 - Supports dependency injection for command execution (enabling offline mock testing).
 """
+
 import asyncio
 import json
 import logging
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 class GitHubIssue(BaseModel):
     """Normalized GitHub Issue representation."""
+
     number: int
     title: str
     body: str = ""
@@ -37,6 +39,7 @@ class GitHubIssue(BaseModel):
 
 class GitHubPollerError(RuntimeError):
     """Raised when GitHub CLI operations fail."""
+
     pass
 
 
@@ -59,7 +62,9 @@ class GitHubPoller:
         self._command_runner = command_runner or subprocess.run
         self._is_running = False
 
-    def _run_gh(self, args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
+    def _run_gh(
+        self, args: list[str], cwd: str | None = None
+    ) -> subprocess.CompletedProcess:
         """Run gh command and return CompletedProcess, raising GitHubPollerError on failure."""
         cmd = ["gh"] + args
         try:
@@ -110,7 +115,10 @@ class GitHubPoller:
         for item in raw_data:
             # Extract label names
             labels_raw = item.get("labels", [])
-            label_names = [lbl.get("name", "") if isinstance(lbl, dict) else str(lbl) for lbl in labels_raw]
+            label_names = [
+                lbl.get("name", "") if isinstance(lbl, dict) else str(lbl)
+                for lbl in labels_raw
+            ]
 
             issue = GitHubIssue(
                 number=item["number"],
@@ -139,7 +147,12 @@ class GitHubPoller:
                 if row:
                     status = row["status"]
                     # If completed or running, skip duplicate pickup
-                    if status in ("COMPLETED", "RUNNING", "PAUSED_BUDGET", "PAUSED_APPROVAL"):
+                    if status in (
+                        "COMPLETED",
+                        "RUNNING",
+                        "PAUSED_BUDGET",
+                        "PAUSED_APPROVAL",
+                    ):
                         return True
             return False
         finally:
@@ -185,10 +198,14 @@ class GitHubPoller:
         ]
         self._run_gh(args)
 
-    def push_branch(self, repo_path: str, branch_name: str, remote: str = "origin") -> None:
+    def push_branch(
+        self, repo_path: str, branch_name: str, remote: str = "origin"
+    ) -> None:
         """Pushes the specified branch to remote."""
         cmd = ["git", "push", "-u", remote, branch_name]
-        res = self._command_runner(cmd, cwd=repo_path, capture_output=True, text=True, check=False)
+        res = self._command_runner(
+            cmd, cwd=repo_path, capture_output=True, text=True, check=False
+        )
         if res.returncode != 0:
             raise GitHubPollerError(f"git push failed:\n{res.stderr.strip()}")
 
@@ -237,13 +254,21 @@ class GitHubPoller:
     ) -> None:
         """Continuously polls for issues labeled 'agent-ready' and invokes callback."""
         self._is_running = True
-        logger.info("Starting GitHub Issue Poller loop (interval: %ss, repo: %s)...", self.poll_interval, self.repo)
+        logger.info(
+            "Starting GitHub Issue Poller loop (interval: %ss, repo: %s)...",
+            self.poll_interval,
+            self.repo,
+        )
         try:
             while self._is_running:
                 try:
                     ready_issues = self.fetch_ready_issues()
                     for issue in ready_issues:
-                        logger.info("Discovered agent-ready issue #%s: %s", issue.number, issue.title)
+                        logger.info(
+                            "Discovered agent-ready issue #%s: %s",
+                            issue.number,
+                            issue.title,
+                        )
                         await on_issue_callback(issue)
                 except Exception as e:
                     logger.error("Error during GitHub poller cycle: %s", e)

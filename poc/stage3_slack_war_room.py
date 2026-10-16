@@ -12,6 +12,7 @@ Executes a live multi-agent dialogue in Slack `#agent-ops`:
 4. Waits asynchronously for engineer interaction in Slack.
 5. Resumes execution and completes verification upon button click.
 """
+
 import argparse
 import asyncio
 import os
@@ -95,7 +96,9 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
         )
         thread_ts = root_msg.get("ts")
         if not thread_ts:
-            raise RuntimeError(f"Failed to extract thread_ts from Slack response: {root_msg}")
+            raise RuntimeError(
+                f"Failed to extract thread_ts from Slack response: {root_msg}"
+            )
 
         update_task_thread_ts(task_id, thread_ts, db_path=db_path)
         print(f"      ✓ Thread created: thread_ts={thread_ts}")
@@ -165,7 +168,9 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
 
         print("\n" + "=" * 70)
         print("⏸️  EXECUTION PAUSED: Waiting for human interaction in Slack...")
-        print(f"👉 Go to Slack channel {channel_id} and click '[Grant +50k Tokens]' or '[Abort Task]'.")
+        print(
+            f"👉 Go to Slack channel {channel_id} and click '[Grant +50k Tokens]' or '[Abort Task]'."
+        )
         print("=" * 70 + "\n")
 
         # Wait for user click in Slack
@@ -174,7 +179,9 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
             print("⚠️ Timeout waiting for Slack button click (120s limit).")
             return
 
-        print(f"      ✓ Received Slack interaction from `{decision.get('user')}`: {decision.get('action')}")
+        print(
+            f"      ✓ Received Slack interaction from `{decision.get('user')}`: {decision.get('action')}"
+        )
         await asyncio.sleep(1.0)
 
         if not decision.get("approved"):
@@ -215,7 +222,9 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
         # Check for any human steering text replies
         steering_note = await bot.get_steering_instruction(task_id)
         if steering_note:
-            print(f"      💬 Detected human steering message in thread: '{steering_note}'")
+            print(
+                f"      💬 Detected human steering message in thread: '{steering_note}'"
+            )
 
         print("\n" + "=" * 70)
         print("✅ STAGE 3 POC VERIFICATION COMPLETE!")
@@ -223,7 +232,9 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
         final_task = get_task(task_id, db_path=db_path)
         print(f"• Task ID:        {final_task['task_id']}")
         print(f"• Final Status:   {final_task['status']}")
-        print(f"• Budget Limit:   {final_task['budget_limit']:,} tokens (Extended from 150,000)")
+        print(
+            f"• Budget Limit:   {final_task['budget_limit']:,} tokens (Extended from 150,000)"
+        )
         print(f"• Tokens Burned:  {final_task['current_tokens']:,} tokens")
         print(f"• Slack Thread:   {thread_ts}")
         print("=" * 70)
@@ -243,8 +254,11 @@ async def run_mock_war_room(db_path: str) -> None:
     print(" [Quota Warden] Budget limit reached (150,000 tokens). Gate engaged.")
     print(" [User Action]  Simulating button click: [Grant +50k Tokens]...")
     bot = SlackWarRoomBot(bot_token=None, app_token=None, db_path=db_path)
-    gate = bot.register_gate(task_id)
-    bot.resolve_gate(task_id, {"action": "grant_budget_50k", "approved": True, "user": "EngineerMock"})
+    _gate = bot.register_gate(task_id)
+    bot.resolve_gate(
+        task_id,
+        {"action": "grant_budget_50k", "approved": True, "user": "EngineerMock"},
+    )
     decision = await bot.wait_for_decision(task_id)
     print(f" [Quota Warden] Unpaused: {decision}")
     print(" [Sentinel]     Re-verified tests: All passed!")
@@ -254,7 +268,9 @@ async def run_mock_war_room(db_path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Stage 3 Slack War-Room PoC")
-    parser.add_argument("--mock", action="store_true", help="Run simulated offline mock war-room")
+    parser.add_argument(
+        "--mock", action="store_true", help="Run simulated offline mock war-room"
+    )
     args = parser.parse_args()
 
     asyncio.run(run_stage3_war_room(mock_mode=args.mock))

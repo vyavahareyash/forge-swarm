@@ -4,6 +4,7 @@ Slack Multi-Persona Bridge for Autonomous Multi-Agent Swarm.
 Uses single Slack Bot OAuth token with `chat:write.customize` scope
 to post messages appearing as distinct agent teammates within a shared thread.
 """
+
 import logging
 from typing import Any
 
@@ -42,7 +43,12 @@ def get_persona(role: str) -> dict[str, str]:
         return AGENT_PERSONAS["coder"]
     if "qa" in normalized or "sentinel" in normalized or "test" in normalized:
         return AGENT_PERSONAS["qa"]
-    if "warden" in normalized or "budget" in normalized or "quota" in normalized or "policy" in normalized:
+    if (
+        "warden" in normalized
+        or "budget" in normalized
+        or "quota" in normalized
+        or "policy" in normalized
+    ):
         return AGENT_PERSONAS["warden"]
     return AGENT_PERSONAS.get(normalized, AGENT_PERSONAS["orchestrator"])
 

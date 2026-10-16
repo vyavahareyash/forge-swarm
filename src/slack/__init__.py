@@ -1,6 +1,7 @@
 """
 Slack Socket Mode and Multi-Persona War-Room integration for npc-inc.
 """
+
 from src.slack.approvals import (
     build_budget_exhaustion_blocks,
     build_draft_pr_blocks,

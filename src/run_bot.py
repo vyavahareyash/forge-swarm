@@ -6,6 +6,7 @@ Runs the live bot listener in the background, responding to:
 - @mentions in #agent-ops
 - Block Kit button approvals
 """
+
 import asyncio
 import logging
 import os
@@ -20,7 +21,9 @@ from dotenv import load_dotenv
 from src.slack.bot import SlackWarRoomBot
 from src.storage.db import init_db
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 

@@ -7,6 +7,7 @@ Main daemon coordinating:
 - Sequential Task Queue Worker (`E2EPipeline`)
 - Graceful lifecycle shutdown (SIGINT/SIGTERM)
 """
+
 import asyncio
 import logging
 import os
@@ -89,9 +90,16 @@ class AgentTeamDaemon:
                 logger.info("Dequeued issue #%s: %s", issue.number, issue.title)
                 try:
                     res = await self.pipeline.execute_issue(issue)
-                    logger.info("Finished issue #%s with status: %s", issue.number, res.status)
+                    logger.info(
+                        "Finished issue #%s with status: %s", issue.number, res.status
+                    )
                 except Exception as err:
-                    logger.error("Unhandled error processing issue #%s: %s", issue.number, err, exc_info=True)
+                    logger.error(
+                        "Unhandled error processing issue #%s: %s",
+                        issue.number,
+                        err,
+                        exc_info=True,
+                    )
                 finally:
                     self.task_queue.task_done()
             except asyncio.CancelledError:
@@ -99,7 +107,9 @@ class AgentTeamDaemon:
 
     async def _on_issue_detected(self, issue: GitHubIssue) -> None:
         """Callback invoked by poller when a new 'agent-ready' issue is found."""
-        logger.info("Enqueuing agent-ready issue #%s into processing queue", issue.number)
+        logger.info(
+            "Enqueuing agent-ready issue #%s into processing queue", issue.number
+        )
         await self.task_queue.put(issue)
 
     async def start(self) -> None:
@@ -108,8 +118,12 @@ class AgentTeamDaemon:
         logger.info("=" * 65)
         logger.info("🤖 Antigravity Multi-Agent SWE Team Daemon Booting...")
         logger.info("Target Repository: %s", self.target_repo_path or "Default fixture")
-        logger.info("GitHub Poller:     %s", self.github_repo or "Disabled (No GITHUB_REPO)")
-        logger.info("Slack War-Room:    %s", self.channel_id or "Disabled (No SLACK_CHANNEL_ID)")
+        logger.info(
+            "GitHub Poller:     %s", self.github_repo or "Disabled (No GITHUB_REPO)"
+        )
+        logger.info(
+            "Slack War-Room:    %s", self.channel_id or "Disabled (No SLACK_CHANNEL_ID)"
+        )
         logger.info("=" * 65)
 
         # 1. Start Slack Bot Socket Mode if enabled

@@ -1,6 +1,7 @@
 """
 Unit and integration tests for Slack Multi-Persona bridge, Block Kit approvals, and Bot handlers.
 """
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -37,7 +38,9 @@ def test_personas_mapping_and_retrieval():
 @pytest.mark.asyncio
 async def test_post_agent_message_custom_profile():
     mock_client = MagicMock()
-    mock_client.chat_postMessage = AsyncMock(return_value={"ok": True, "ts": "12345.6789"})
+    mock_client.chat_postMessage = AsyncMock(
+        return_value={"ok": True, "ts": "12345.6789"}
+    )
 
     res = await post_agent_message(
         client=mock_client,
@@ -119,7 +122,10 @@ def test_db_thread_ts_mapping(tmp_path):
     # Update thread_ts
     update_task_thread_ts("task-slack-test", "1712345678.000999", db_path=db_file)
     assert get_task_by_thread_ts("1712345678.000100", db_path=db_file) is None
-    assert get_task_by_thread_ts("1712345678.000999", db_path=db_file)["task_id"] == "task-slack-test"
+    assert (
+        get_task_by_thread_ts("1712345678.000999", db_path=db_file)["task_id"]
+        == "task-slack-test"
+    )
 
     # Audit events
     record_slack_event(
@@ -166,7 +172,9 @@ async def test_bot_steering_queue():
 
     # Simulate incoming message enqueued by listener
     bot.steering_queues[task_id] = asyncio.Queue()
-    await bot.steering_queues[task_id].put("Please also check edge cases for negative inputs.")
+    await bot.steering_queues[task_id].put(
+        "Please also check edge cases for negative inputs."
+    )
 
     instruction = await bot.get_steering_instruction(task_id)
     assert instruction == "Please also check edge cases for negative inputs."

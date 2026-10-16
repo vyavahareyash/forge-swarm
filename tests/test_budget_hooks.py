@@ -1,4 +1,5 @@
 """Unit tests for budget enforcement hooks, SQLite state, and safety policies."""
+
 import os
 import tempfile
 
@@ -61,12 +62,18 @@ async def test_budget_metering_and_accumulation(temp_db):
     task_id = "test-accumulate"
     create_task(task_id=task_id, budget_limit=10_000, turn_limit=10, db_path=temp_db)
 
-    guard = BudgetGuard(task_id=task_id, budget_limit=10_000, turn_limit=10, db_path=temp_db)
+    guard = BudgetGuard(
+        task_id=task_id, budget_limit=10_000, turn_limit=10, db_path=temp_db
+    )
 
     # Turn 1: 3000 tokens
     res1 = await guard.handle_post_turn(
         turn_index=1,
-        usage_data={"total_token_count": 3000, "prompt_token_count": 2500, "candidates_token_count": 500},
+        usage_data={
+            "total_token_count": 3000,
+            "prompt_token_count": 2500,
+            "candidates_token_count": 500,
+        },
     )
     assert res1["cumulative_tokens"] == 3000
     assert not res1["budget_exceeded"]
@@ -76,7 +83,11 @@ async def test_budget_metering_and_accumulation(temp_db):
     # Turn 2: 4000 tokens (cumulative 7000)
     res2 = await guard.handle_post_turn(
         turn_index=2,
-        usage_data={"total_token_count": 4000, "prompt_token_count": 3000, "candidates_token_count": 1000},
+        usage_data={
+            "total_token_count": 4000,
+            "prompt_token_count": 3000,
+            "candidates_token_count": 1000,
+        },
     )
     assert res2["cumulative_tokens"] == 7000
     assert not res2["budget_exceeded"]
@@ -142,7 +153,9 @@ async def test_turn_limit_halt(temp_db):
     task_id = "test-turns"
     create_task(task_id=task_id, budget_limit=100_000, turn_limit=2, db_path=temp_db)
 
-    guard = BudgetGuard(task_id=task_id, budget_limit=100_000, turn_limit=2, db_path=temp_db)
+    guard = BudgetGuard(
+        task_id=task_id, budget_limit=100_000, turn_limit=2, db_path=temp_db
+    )
 
     await guard.handle_post_turn(turn_index=1, usage_data={"total_tokens": 500})
     assert not guard.is_paused
@@ -180,16 +193,28 @@ def test_policy_engine_evaluation():
     engine = PolicyEngine(rules)
 
     # Shell dangerous command -> DENY
-    assert engine.evaluate("run_command", {"CommandLine": "rm -rf /tmp"}) == Decision.DENY
+    assert (
+        engine.evaluate("run_command", {"CommandLine": "rm -rf /tmp"}) == Decision.DENY
+    )
 
     # git push -> ASK_USER
-    assert engine.evaluate("run_command", {"CommandLine": "git push origin fix/123"}) == Decision.ASK_USER
+    assert (
+        engine.evaluate("run_command", {"CommandLine": "git push origin fix/123"})
+        == Decision.ASK_USER
+    )
 
     # Safe command -> ALLOW
-    assert engine.evaluate("run_command", {"CommandLine": "pytest -v"}) == Decision.ALLOW
+    assert (
+        engine.evaluate("run_command", {"CommandLine": "pytest -v"}) == Decision.ALLOW
+    )
 
     # File write outside workspace -> DENY
-    assert engine.evaluate("write_to_file", {"TargetFile": "/etc/hosts"}) == Decision.DENY
+    assert (
+        engine.evaluate("write_to_file", {"TargetFile": "/etc/hosts"}) == Decision.DENY
+    )
 
     # File write inside workspace -> ALLOW
-    assert engine.evaluate("write_to_file", {"TargetFile": "/tmp/workspace/main.py"}) == Decision.ALLOW
+    assert (
+        engine.evaluate("write_to_file", {"TargetFile": "/tmp/workspace/main.py"})
+        == Decision.ALLOW
+    )

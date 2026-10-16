@@ -4,6 +4,7 @@ Git Worktree Isolation Manager.
 Implements ADR 0002: Ephemeral Git Worktrees for Task Isolation.
 Provisions and prunes isolated working trees under ./workspaces/issue-<id>.
 """
+
 import contextlib
 import os
 import shutil
@@ -14,6 +15,7 @@ from pathlib import Path
 
 class WorktreeError(RuntimeError):
     """Raised when git worktree operations fail."""
+
     pass
 
 
@@ -94,7 +96,9 @@ class WorktreeManager:
 
         if not wt_path.exists():
             # Still prune metadata
-            subprocess.run(["git", "worktree", "prune"], cwd=str(repo_dir), capture_output=True)
+            subprocess.run(
+                ["git", "worktree", "prune"], cwd=str(repo_dir), capture_output=True
+            )
             return
 
         cmd = ["worktree", "remove"]
@@ -106,12 +110,16 @@ class WorktreeManager:
             self._run_git(cmd, cwd=repo_dir)
         except WorktreeError:
             # Fallback if git fails to remove folder: prune and rmtree
-            subprocess.run(["git", "worktree", "prune"], cwd=str(repo_dir), capture_output=True)
+            subprocess.run(
+                ["git", "worktree", "prune"], cwd=str(repo_dir), capture_output=True
+            )
             if wt_path.exists():
                 shutil.rmtree(wt_path, ignore_errors=True)
 
         # Prune git internal worktree tracking
-        subprocess.run(["git", "worktree", "prune"], cwd=str(repo_dir), capture_output=True)
+        subprocess.run(
+            ["git", "worktree", "prune"], cwd=str(repo_dir), capture_output=True
+        )
 
     def get_diff(self, worktree_path: str | Path) -> str:
         """Returns unified diff of unstaged and staged changes in worktree."""

@@ -1,6 +1,7 @@
 """
 Pydantic Schemas for Multi-Agent SWE Swarm Task Contracts.
 """
+
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -9,7 +10,9 @@ from pydantic import BaseModel, Field
 class SubTask(BaseModel):
     id: str = Field(description="Unique identifier for subtask, e.g. subtask-1")
     title: str = Field(description="Brief title of subtask")
-    target_files: list[str] = Field(default_factory=list, description="Files to create or edit")
+    target_files: list[str] = Field(
+        default_factory=list, description="Files to create or edit"
+    )
     acceptance_criteria: str = Field(description="Specific condition for completion")
 
 
@@ -17,8 +20,12 @@ class ImplementationPlan(BaseModel):
     issue_number: int = Field(description="Target issue number")
     summary: str = Field(description="High-level plan summary")
     branch_name: str = Field(description="Target git branch name")
-    subtasks: list[SubTask] = Field(default_factory=list, description="Ordered execution subtasks")
-    estimated_token_budget: int = Field(default=150_000, description="Estimated total token budget")
+    subtasks: list[SubTask] = Field(
+        default_factory=list, description="Ordered execution subtasks"
+    )
+    estimated_token_budget: int = Field(
+        default=150_000, description="Estimated total token budget"
+    )
 
 
 class QATestReport(BaseModel):
@@ -26,8 +33,12 @@ class QATestReport(BaseModel):
     command_executed: str = Field(description="Shell test command executed")
     total_tests: int = Field(default=0, description="Number of tests executed")
     failed_tests: int = Field(default=0, description="Number of failing tests")
-    failure_summary: str | None = Field(default=None, description="Detailed traceback / error log if failed")
-    suggested_fix_files: list[str] = Field(default_factory=list, description="Files suggested for inspection")
+    failure_summary: str | None = Field(
+        default=None, description="Detailed traceback / error log if failed"
+    )
+    suggested_fix_files: list[str] = Field(
+        default_factory=list, description="Files suggested for inspection"
+    )
 
 
 class SwarmTurnLog(BaseModel):
@@ -84,7 +95,8 @@ class TurnRecord(BaseModel):
             action=self.action,
             thinking_level=self.thinking_level,
             tokens_spent=self.tokens_spent,
-            details=self.details or ({"summary": self.response_text} if self.response_text else {}),
+            details=self.details
+            or ({"summary": self.response_text} if self.response_text else {}),
         )
 
 
@@ -111,4 +123,3 @@ class SwarmExecutionResult(BaseModel):
     git_diff: str = ""
     trajectory: list[SwarmTurnLog] = Field(default_factory=list)
     tokens_spent: int = 0
-

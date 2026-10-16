@@ -7,6 +7,7 @@ Manages:
 - Interactive Block Kit approval gates (budget top-ups, safety gates, draft PR approvals).
 - Thread-to-Task session mapping and human steering context injection.
 """
+
 import asyncio
 import logging
 import os
@@ -59,7 +60,6 @@ class SlackWarRoomBot:
         if self.bot_token and self.app_token:
             self._init_bolt_app()
 
-
     def _init_bolt_app(self) -> None:
         """Configures Bolt AsyncApp and registers interactive listeners."""
         self.app = AsyncApp(token=self.bot_token)
@@ -81,7 +81,12 @@ class SlackWarRoomBot:
             thread_ts = container.get("thread_ts") or body.get("message", {}).get("ts")
 
             # Extend in DB
-            extend_task_budget(action_val, additional_tokens=50_000, additional_turns=5, db_path=self.db_path)
+            extend_task_budget(
+                action_val,
+                additional_tokens=50_000,
+                additional_turns=5,
+                db_path=self.db_path,
+            )
             record_slack_event(
                 event_type="grant_budget_50k",
                 payload={"task_id": action_val, "extended_by": user},
@@ -99,7 +104,10 @@ class SlackWarRoomBot:
                 thread_ts=thread_ts,
             )
 
-            self.resolve_gate(action_val, {"action": "grant_budget_50k", "approved": True, "user": user})
+            self.resolve_gate(
+                action_val,
+                {"action": "grant_budget_50k", "approved": True, "user": user},
+            )
 
         # 2. Action: Abort Task
         @self.app.action("abort_task")
@@ -129,7 +137,9 @@ class SlackWarRoomBot:
                 thread_ts=thread_ts,
             )
 
-            self.resolve_gate(action_val, {"action": "abort_task", "approved": False, "user": user})
+            self.resolve_gate(
+                action_val, {"action": "abort_task", "approved": False, "user": user}
+            )
 
         # 3. Action: Approve / Deny Security Policy Commands
         @self.app.action("approve_command")
@@ -155,7 +165,10 @@ class SlackWarRoomBot:
                 text=f"✅ *Command Approved* by `{user}`. Resuming execution.",
                 thread_ts=thread_ts,
             )
-            self.resolve_gate(f"policy_{task_id}", {"action": "approve_command", "approved": True, "user": user})
+            self.resolve_gate(
+                f"policy_{task_id}",
+                {"action": "approve_command", "approved": True, "user": user},
+            )
 
         @self.app.action("deny_command")
         async def handle_deny_command(ack, body, client):
@@ -180,7 +193,10 @@ class SlackWarRoomBot:
                 text=f"❌ *Command Denied* by `{user}`. Skipping restricted operation.",
                 thread_ts=thread_ts,
             )
-            self.resolve_gate(f"policy_{task_id}", {"action": "deny_command", "approved": False, "user": user})
+            self.resolve_gate(
+                f"policy_{task_id}",
+                {"action": "deny_command", "approved": False, "user": user},
+            )
 
         # 4. Action: Approve Draft PR
         @self.app.action("approve_draft_pr")
@@ -206,7 +222,10 @@ class SlackWarRoomBot:
                 text=f"🚀 *Draft PR Authorized* by `{user}`. Preparing branch push and GitHub Draft PR delivery.",
                 thread_ts=thread_ts,
             )
-            self.resolve_gate(f"pr_{task_id}", {"action": "approve_draft_pr", "approved": True, "user": user})
+            self.resolve_gate(
+                f"pr_{task_id}",
+                {"action": "approve_draft_pr", "approved": True, "user": user},
+            )
 
         @self.app.action("request_revision")
         async def handle_request_revision(ack, body, client):
@@ -231,7 +250,10 @@ class SlackWarRoomBot:
                 text=f"💬 *Revision Requested* by `{user}`. Please leave steering notes in this thread.",
                 thread_ts=thread_ts,
             )
-            self.resolve_gate(f"pr_{task_id}", {"action": "request_revision", "approved": False, "user": user})
+            self.resolve_gate(
+                f"pr_{task_id}",
+                {"action": "request_revision", "approved": False, "user": user},
+            )
 
         # 5. Message Event: Thread steering listener
         @self.app.event("message")
@@ -252,7 +274,9 @@ class SlackWarRoomBot:
             task_id = (
                 rehydrated.task.get("task_id")
                 if rehydrated and rehydrated.task
-                else (get_task_by_thread_ts(thread_ts, db_path=self.db_path) or {}).get("task_id", thread_ts)
+                else (get_task_by_thread_ts(thread_ts, db_path=self.db_path) or {}).get(
+                    "task_id", thread_ts
+                )
             )
 
             # Enqueue steering instruction
@@ -288,10 +312,9 @@ class SlackWarRoomBot:
                 client=client,
                 channel=event.get("channel"),
                 role="orchestrator",
-                text=f"🧭 *Atlas (Lead Architect):* Acknowledged steering guidance from <@{user_id}>{spec_suffix}:\n> *\"{text}\"*\nEnqueued as active direction for Forge and Sentinel.",
+                text=f'🧭 *Atlas (Lead Architect):* Acknowledged steering guidance from <@{user_id}>{spec_suffix}:\n> *"{text}"*\nEnqueued as active direction for Forge and Sentinel.',
                 thread_ts=thread_ts,
             )
-
 
         # 6. App Mention Event: Top-level mentions
         @self.app.event("app_mention")
@@ -313,7 +336,7 @@ class SlackWarRoomBot:
                 role="orchestrator",
                 text=(
                     f"🤖 *Antigravity Dev Team War-Room Online*\n"
-                    f"Hello <@{user_id}>! I received your mention: *\"{text}\"*\n"
+                    f'Hello <@{user_id}>! I received your mention: *"{text}"*\n'
                     f"• Type replies in this thread to steer the swarm.\n"
                     f"• Interactive Block Kit buttons appear automatically when human decisions or budget extensions are needed."
                 ),
@@ -334,7 +357,9 @@ class SlackWarRoomBot:
         if event:
             event.set()
 
-    async def wait_for_decision(self, gate_id: str, timeout: float | None = None) -> dict[str, Any] | None:
+    async def wait_for_decision(
+        self, gate_id: str, timeout: float | None = None
+    ) -> dict[str, Any] | None:
         """Wait until human engineer resolves the gate in Slack."""
         event = self.active_gates.get(gate_id)
         if not event:
@@ -354,7 +379,6 @@ class SlackWarRoomBot:
         return self.session_manager.rehydrate(identifier)
 
     async def get_steering_instruction(self, task_id: str) -> str | None:
-
         """Check for pending steering context from human thread replies."""
         queue = self.steering_queues.get(task_id)
         if queue and not queue.empty():
@@ -388,7 +412,9 @@ class SlackWarRoomBot:
     async def start(self) -> None:
         """Starts the Socket Mode background listener."""
         if not self.bot_token or not self.app_token:
-            raise ValueError("SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set to start Socket Mode")
+            raise ValueError(
+                "SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set to start Socket Mode"
+            )
 
         if not self.handler:
             self.handler = AsyncSocketModeHandler(self.app, self.app_token)

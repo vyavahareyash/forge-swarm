@@ -1,21 +1,23 @@
 """Safety policies and permission gates for autonomous agents."""
+
 import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 # Attempt to import Antigravity SDK policy helpers if present
 try:
     from google.antigravity.hooks import policy as sdk_policy
+
     HAS_SDK_POLICY = True
 except ImportError:
     sdk_policy = None
     HAS_SDK_POLICY = False
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     ALLOW = "ALLOW"
     DENY = "DENY"
     ASK_USER = "ASK_USER"
@@ -31,7 +33,9 @@ class PolicyRule:
 
     def matches(self, tool_name: str, arguments: dict[str, Any]) -> bool:
         if self.tool_pattern != "*" and self.tool_pattern != tool_name:
-            if self.tool_pattern.endswith("*") and tool_name.startswith(self.tool_pattern[:-1]):
+            if self.tool_pattern.endswith("*") and tool_name.startswith(
+                self.tool_pattern[:-1]
+            ):
                 pass
             else:
                 return False
@@ -100,7 +104,9 @@ class PolicyEngine:
     def __init__(self, rules: list[Any] | None = None):
         self.rules: list[Any] = _flatten_rules(rules or [])
 
-    def evaluate(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Decision:
+    def evaluate(
+        self, tool_name: str, arguments: dict[str, Any] | None = None
+    ) -> Decision:
         args = arguments or {}
         for rule in self.rules:
             # Native PolicyRule
@@ -113,7 +119,9 @@ class PolicyEngine:
                 matched = False
                 if tool_pattern == "*" or tool_pattern == tool_name:
                     matched = True
-                elif tool_pattern.endswith("*") and tool_name.startswith(tool_pattern[:-1]):
+                elif tool_pattern.endswith("*") and tool_name.startswith(
+                    tool_pattern[:-1]
+                ):
                     matched = True
 
                 if matched:
@@ -149,7 +157,12 @@ def create_agent_policies(
     if HAS_SDK_POLICY and sdk_policy is not None:
         sdk_policies = []
         if workspace_path:
-            for tool in ("write_to_file", "create_file", "replace_file_content", "edit_file"):
+            for tool in (
+                "write_to_file",
+                "create_file",
+                "replace_file_content",
+                "edit_file",
+            ):
                 sdk_policies.append(
                     sdk_policy.deny(
                         tool,

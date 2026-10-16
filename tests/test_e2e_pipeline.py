@@ -1,4 +1,5 @@
 """Integration tests for End-to-End Pipeline execution."""
+
 import pytest
 
 from src.pipeline import E2EPipeline

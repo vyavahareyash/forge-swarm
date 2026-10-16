@@ -441,5 +441,3 @@ def get_task_by_id_or_thread(identifier: str, db_path: Optional[str] = None) -> 
     if task:
         return task
     return get_task_by_thread_ts(identifier, db_path=db_path)
-
-

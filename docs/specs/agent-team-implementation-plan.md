@@ -109,11 +109,13 @@ Use Pydantic models with `response.structured_output()` so handoffs between the 
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional
 
+
 class SubTask(BaseModel):
     id: str
     title: str
     target_files: List[str]
     acceptance_criteria: str
+
 
 class ImplementationPlan(BaseModel):
     issue_number: int
@@ -121,6 +123,7 @@ class ImplementationPlan(BaseModel):
     branch_name: str
     subtasks: List[SubTask]
     estimated_token_budget: int = Field(default=150000)
+
 
 class QATestReport(BaseModel):
     passed: bool
@@ -147,25 +150,21 @@ Using a single Slack Bot token with the `chat:write.customize` scope, all agents
 
 ```python
 AGENT_PERSONAS = {
-    "orchestrator": {
-        "username": "Atlas (Lead Architect)",
-        "icon_emoji": ":compass:"
-    },
-    "coder": {
-        "username": "Forge (SWE Sub-Agent)",
-        "icon_emoji": ":hammer_and_wrench:"
-    },
-    "qa": {
-        "username": "Sentinel (QA & Verification)",
-        "icon_emoji": ":microscope:"
-    },
-    "budget_guard": {
-        "username": "Quota Warden",
-        "icon_emoji": ":scales:"
-    }
+    "orchestrator": {"username": "Atlas (Lead Architect)", "icon_emoji": ":compass:"},
+    "coder": {"username": "Forge (SWE Sub-Agent)", "icon_emoji": ":hammer_and_wrench:"},
+    "qa": {"username": "Sentinel (QA & Verification)", "icon_emoji": ":microscope:"},
+    "budget_guard": {"username": "Quota Warden", "icon_emoji": ":scales:"},
 }
 
-async def post_agent_message(slack_client, channel: str, thread_ts: str, role: str, text: str, blocks: list = None):
+
+async def post_agent_message(
+    slack_client,
+    channel: str,
+    thread_ts: str,
+    role: str,
+    text: str,
+    blocks: list = None,
+):
     persona = AGENT_PERSONAS.get(role, AGENT_PERSONAS["orchestrator"])
     await slack_client.chat_postMessage(
         channel=channel,
@@ -173,7 +172,7 @@ async def post_agent_message(slack_client, channel: str, thread_ts: str, role: s
         text=text,
         blocks=blocks,
         username=persona["username"],
-        icon_emoji=persona["icon_emoji"]
+        icon_emoji=persona["icon_emoji"],
     )
 ```
 
