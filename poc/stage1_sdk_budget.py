@@ -242,12 +242,12 @@ async def run_stage1_poc(mode: str = "standalone") -> int:
     print("=" * 60)
 
     # Assertions for acceptance criteria
-    assert (
-        final_task["status"] == "PAUSED_BUDGET"
-    ), f"Expected status PAUSED_BUDGET, got {final_task['status']}"
-    assert (
-        final_task["current_tokens"] >= budget_limit
-    ), "Expected cumulative tokens to meet or exceed ceiling"
+    assert final_task["status"] == "PAUSED_BUDGET", (
+        f"Expected status PAUSED_BUDGET, got {final_task['status']}"
+    )
+    assert final_task["current_tokens"] >= budget_limit, (
+        "Expected cumulative tokens to meet or exceed ceiling"
+    )
 
     print(
         f"🎉 PoC Stage 1 verification SUCCESSFUL ({mode_label}): Halts cleanly with Status: PAUSED_BUDGET\n"
