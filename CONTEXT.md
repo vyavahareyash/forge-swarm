@@ -23,3 +23,13 @@ An event-driven, issue-triggered autonomous multi-agent engineering swarm design
 ## 5. Storage & State Model
 - `storage/state.db`: SQLite database tracking issue metadata, thread timestamps, conversation IDs, token spend, and execution state.
 - `storage/sessions/`: Native SDK trajectory and session storage (`save_dir`) for turn resumption.
+
+## 6. Finalized Requirements (Resolved via Grilling)
+- **Deployment**: Local host daemon inheriting active Antigravity OAuth session.
+- **Triggers**: Dual triggers (GitHub Issues labeled `agent-ready` + Slack `/agent solve` & mentions).
+- **Isolation**: Ephemeral Git Worktree (`./workspaces/issue-<id>`) branched from target repo default.
+- **Self-Correction**: Bounded loop (max 3 QA test-fix retries before human escalation).
+- **Delivery**: Local commits + diff in Slack → human clicks `[Approve & Create Draft PR]` to push.
+- **Thread Interaction**: Freeform Slack replies dynamically injected into live conversation session.
+- **Concurrency**: Strict FIFO sequential execution (1 active task; remaining queued).
+- **Build Strategy**: 4-stage incremental PoC (Stage 1: SDK auth & budget guard PoC).

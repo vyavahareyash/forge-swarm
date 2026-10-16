@@ -32,7 +32,8 @@ storage/sessions/*
 !storage/sessions/.gitkeep
 
 # Isolated workspaces
-workspaces/
+workspaces/*
+!workspaces/.gitkeep
 
 # Environment secrets
 .env
