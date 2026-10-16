@@ -476,6 +476,8 @@ class Orchestrator:
                 final_session.status = status
                 final_session.retries_used = retries
                 final_session.plan = plan
+                final_session.final_report = final_report
+                final_session.git_diff = git_diff
                 final_session.updated_at = datetime.now(UTC).isoformat()
                 self.session_manager._atomic_write_json(
                     self.session_manager._get_session_path(task_id),

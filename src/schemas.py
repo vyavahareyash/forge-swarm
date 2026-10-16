@@ -108,6 +108,8 @@ class SessionTrajectory(BaseModel):
     plan: ImplementationPlan | None = None
     living_spec: LivingSpec | None = None
     turns: list[TurnRecord] = Field(default_factory=list)
+    final_report: QATestReport | None = None
+    git_diff: str = ""
     tokens_spent: int = 0
     created_at: str
     updated_at: str
