@@ -17,7 +17,9 @@ from dotenv import load_dotenv
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
-from src.slack.personas import post_agent_message
+from src.slack.mutations import mutate_blocks_for_resolution
+from src.slack.personas import get_persona, post_agent_message
+from src.slack.router import ChannelTopologyRouter, resolve_target_persona
 from src.storage.db import (
     extend_task_budget,
     get_task_by_thread_ts,
@@ -48,6 +50,9 @@ class SlackWarRoomBot:
         self.default_channel = default_channel or os.getenv("SLACK_CHANNEL_ID")
         self.db_path = db_path
         self.session_manager = SessionManager(db_path=self.db_path)
+        self.channel_router = ChannelTopologyRouter.from_env()
+        if self.default_channel:
+            self.channel_router.default_channel = self.default_channel
 
         self.active_gates: dict[str, asyncio.Event] = {}
         self.gate_decisions: dict[str, dict[str, Any]] = {}
@@ -59,6 +64,45 @@ class SlackWarRoomBot:
 
         if self.bot_token and self.app_token:
             self._init_bolt_app()
+
+    def get_channel(self, phase: str | None = None) -> str:
+        """Returns the target channel according to configured topology and phase."""
+        return self.channel_router.get_channel(phase)
+
+    async def mutate_message_in_place(
+        self,
+        client: Any,
+        channel: str,
+        body: dict[str, Any],
+        action_id: str,
+        user_id: str,
+        resolution_text: str | None = None,
+    ) -> None:
+        """Mutate message in-place to remove interactive buttons and insert an audit context."""
+        try:
+            message = body.get("message", {})
+            orig_blocks = message.get("blocks", [])
+            message_ts = message.get("ts") or body.get("container", {}).get(
+                "message_ts"
+            )
+            if orig_blocks and message_ts:
+                updated_blocks = mutate_blocks_for_resolution(
+                    blocks=orig_blocks,
+                    action_id=action_id,
+                    user_id=user_id,
+                    resolution_text=resolution_text,
+                )
+                if hasattr(client, "chat_update"):
+                    call = client.chat_update(
+                        channel=channel,
+                        ts=message_ts,
+                        blocks=updated_blocks,
+                        text=message.get("text", "Action processed"),
+                    )
+                    if hasattr(call, "__await__"):
+                        await call
+        except Exception as e:
+            logger.warning("Failed to mutate message in-place for %s: %s", action_id, e)
 
     def _init_bolt_app(self) -> None:
         """Configures Bolt AsyncApp and registers interactive listeners."""
@@ -79,6 +123,15 @@ class SlackWarRoomBot:
             channel = body.get("channel", {}).get("id", self.default_channel)
             container = body.get("container", {})
             thread_ts = container.get("thread_ts") or body.get("message", {}).get("ts")
+
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="grant_budget_50k",
+                user_id=user_id or user,
+            )
 
             # Extend in DB
             extend_task_budget(
@@ -120,6 +173,15 @@ class SlackWarRoomBot:
             container = body.get("container", {})
             thread_ts = container.get("thread_ts") or body.get("message", {}).get("ts")
 
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="abort_task",
+                user_id=user_id or user,
+            )
+
             update_task_status(action_val, "ABORTED", db_path=self.db_path)
             record_slack_event(
                 event_type="abort_task",
@@ -151,6 +213,15 @@ class SlackWarRoomBot:
             channel = body.get("channel", {}).get("id", self.default_channel)
             thread_ts = body.get("container", {}).get("thread_ts")
 
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="approve_command",
+                user_id=user_id or user,
+            )
+
             record_slack_event(
                 event_type="policy_approved",
                 payload={"task_id": task_id, "approved_by": user},
@@ -178,6 +249,15 @@ class SlackWarRoomBot:
             user_id = body.get("user", {}).get("id", "")
             channel = body.get("channel", {}).get("id", self.default_channel)
             thread_ts = body.get("container", {}).get("thread_ts")
+
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="deny_command",
+                user_id=user_id or user,
+            )
 
             record_slack_event(
                 event_type="policy_denied",
@@ -208,6 +288,15 @@ class SlackWarRoomBot:
             channel = body.get("channel", {}).get("id", self.default_channel)
             thread_ts = body.get("container", {}).get("thread_ts")
 
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="approve_draft_pr",
+                user_id=user_id or user,
+            )
+
             record_slack_event(
                 event_type="draft_pr_approved",
                 payload={"task_id": task_id, "approved_by": user},
@@ -235,6 +324,15 @@ class SlackWarRoomBot:
             user_id = body.get("user", {}).get("id", "")
             channel = body.get("channel", {}).get("id", self.default_channel)
             thread_ts = body.get("container", {}).get("thread_ts")
+
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="request_revision",
+                user_id=user_id or user,
+            )
 
             record_slack_event(
                 event_type="revision_requested",
@@ -271,13 +369,17 @@ class SlackWarRoomBot:
 
             # Rehydrate task context from persistent storage
             rehydrated = self.session_manager.rehydrate(thread_ts)
-            task_id = (
-                rehydrated.task.get("task_id")
+            task_data = (
+                rehydrated.task
                 if rehydrated and rehydrated.task
-                else (get_task_by_thread_ts(thread_ts, db_path=self.db_path) or {}).get(
-                    "task_id", thread_ts
-                )
+                else (get_task_by_thread_ts(thread_ts, db_path=self.db_path) or {})
             )
+            task_id = task_data.get("task_id", thread_ts)
+            active_phase = task_data.get("status", "running")
+
+            # Resolve responding persona via mention or active phase fallback
+            target_persona = resolve_target_persona(text, active_phase=active_phase)
+            persona_info = get_persona(target_persona)
 
             # Enqueue steering instruction
             if task_id not in self.steering_queues:
@@ -286,7 +388,12 @@ class SlackWarRoomBot:
 
             record_slack_event(
                 event_type="thread_steering",
-                payload={"task_id": task_id, "text": text, "thread_ts": thread_ts},
+                payload={
+                    "task_id": task_id,
+                    "text": text,
+                    "thread_ts": thread_ts,
+                    "persona": target_persona,
+                },
                 task_id=task_id,
                 user_id=user_id,
                 db_path=self.db_path,
@@ -302,7 +409,7 @@ class SlackWarRoomBot:
             except Exception as e:
                 logger.debug("Failed to add reaction to user message: %s", e)
 
-            # Post acknowledgment from Atlas in the thread
+            # Post acknowledgment from resolved persona in the thread
             spec_suffix = (
                 f" [Living Spec v{rehydrated.living_spec.version} active]"
                 if rehydrated and rehydrated.living_spec
@@ -311,8 +418,13 @@ class SlackWarRoomBot:
             await post_agent_message(
                 client=client,
                 channel=event.get("channel"),
-                role="orchestrator",
-                text=f'🧭 *Atlas (Lead Architect):* Acknowledged steering guidance from <@{user_id}>{spec_suffix}:\n> *"{text}"*\nEnqueued as active direction for Forge and Sentinel.',
+                role=target_persona,
+                text=(
+                    f"{persona_info['icon_emoji']} *{persona_info['username']}:* "
+                    f"Acknowledged guidance from <@{user_id}>{spec_suffix}:\n"
+                    f'> *"{text}"*\n'
+                    f"Enqueued as active direction."
+                ),
                 thread_ts=thread_ts,
             )
 
