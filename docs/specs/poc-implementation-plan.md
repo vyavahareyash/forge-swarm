@@ -88,7 +88,7 @@ Verify that the host can provision and prune isolated Git worktrees (`./workspac
 
 ---
 
-## Stage 3: Slack Socket Mode War-Room & Block Kit Approval Gates
+## Stage 3: Slack Socket Mode War-Room & Block Kit Approval Gates ✅ [COMPLETED]
 
 ### Objective
 Verify that the local daemon connects to Slack via Socket Mode (zero public incoming ports), streams real-time updates under distinct personas (`Atlas`, `Forge`, `Sentinel`, `Quota Warden`) in a single thread, pauses execution on safety/budget gates, and resumes when an interactive button is clicked or a text steering message is sent.
@@ -99,12 +99,14 @@ Verify that the local daemon connects to Slack via Socket Mode (zero public inco
 3. `src/slack/approvals.py`: Block Kit templates for `[Grant +50k Tokens]`, `[Abort Task]`, and `[Approve & Create Draft PR]`.
 4. `src/slack/bot.py`: Async Slack Bolt listener mapping `thread_ts` ↔ `conversation_id` and forwarding thread replies into the active agent session.
 5. `poc/stage3_slack_war_room.py`: Interactive verification script running in `#agent-ops`, posting multi-persona dialogue, presenting approval buttons, and waiting for user click.
+6. `poc/app.py`: Interactive Streamlit Tab 6 testbench running live/mock Slack war-room sessions, Block Kit button testing, and human steering.
+7. `tests/test_slack.py`: Unit test suite verifying personas, Block Kit structures, DB thread mapping, async gates, and queues.
 
 ### Acceptance Criteria
-- [ ] Socket Mode connects successfully using `SLACK_APP_TOKEN` (`xapp-`) and `SLACK_BOT_TOKEN` (`xoxb-`).
-- [ ] Updates appear in a single Slack thread styled as Atlas, Forge, and Sentinel.
-- [ ] Clicking `[Grant +50k Tokens]` unblocks a paused task and logs the extended quota.
-- [ ] Freeform text in the thread is received and returned as human steering context.
+- [x] Socket Mode connects successfully using `SLACK_APP_TOKEN` (`xapp-`) and `SLACK_BOT_TOKEN` (`xoxb-`).
+- [x] Updates appear in a single Slack thread styled as Atlas, Forge, and Sentinel.
+- [x] Clicking `[Grant +50k Tokens]` unblocks a paused task and logs the extended quota.
+- [x] Freeform text in the thread is received and returned as human steering context.
 
 ---
 

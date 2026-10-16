@@ -38,15 +38,26 @@ from src.storage.db import (
     create_task,
     extend_task_budget,
     get_connection,
+    get_slack_events,
     get_task,
+    get_task_by_thread_ts,
     get_turn_history,
     init_db,
+    record_slack_event,
     record_turn_tokens,
     update_task_status,
+    update_task_thread_ts,
 )
 from src.agents.orchestrator import Orchestrator
 from src.worktree import WorktreeManager
 from tests.fixtures.sample_repo import ensure_sample_repo
+from src.slack.personas import AGENT_PERSONAS, get_persona, post_agent_message
+from src.slack.approvals import (
+    build_budget_exhaustion_blocks,
+    build_policy_gate_blocks,
+    build_draft_pr_blocks,
+)
+from src.slack.bot import SlackWarRoomBot
 
 # Page configuration
 st.set_page_config(
@@ -174,13 +185,14 @@ with st.sidebar:
 
 
 # --- TAB NAVIGATION ---
-tab_runtime, tab_policies, tab_budget, tab_swarm, tab_db = st.tabs(
+tab_runtime, tab_policies, tab_budget, tab_swarm, tab_db, tab_slack = st.tabs(
     [
         "⚡ 1. Runtime & Inference",
         "🛡️ 2. Safety Policy Engine",
         "🛑 3. Budget Guard & Quota",
         "🤖 4. Persona Swarm Stepper",
         "🗄️ 5. SQLite State Explorer",
+        "💬 6. Slack War-Room & Approvals",
     ]
 )
 
@@ -723,6 +735,287 @@ CREATE TABLE token_turns (
     timestamp TEXT NOT NULL,
     FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE
 );
+
+CREATE TABLE slack_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT,
+    event_type TEXT NOT NULL,
+    user_id TEXT,
+    payload TEXT NOT NULL,
+    timestamp TEXT NOT NULL
+);
             """,
             language="sql",
         )
+
+
+# ==============================================================================
+# TAB 6: SLACK WAR-ROOM & APPROVAL GATES TESTBENCH
+# ==============================================================================
+with tab_slack:
+    st.header("💬 Slack Socket Mode War-Room & Block Kit Approval Gates")
+    st.write(
+        "Demonstrates bidirectional multi-persona war-room communication via Slack Socket Mode "
+        "(zero inbound ports), dynamic personas via `chat:write.customize`, interactive Block Kit "
+        "approval gates for budget top-ups, and human thread steering context injection."
+    )
+
+    # 1. Connection Diagnostics
+    st.subheader("🔌 Connection Diagnostics")
+    diag_col1, diag_col2, diag_col3, diag_col4 = st.columns(4)
+
+    app_token = os.getenv("SLACK_APP_TOKEN", "")
+    bot_token = os.getenv("SLACK_BOT_TOKEN", "")
+    chan_id = os.getenv("SLACK_CHANNEL_ID", "")
+
+    has_app_tok = bool(app_token and app_token.startswith("xapp-"))
+    has_bot_tok = bool(bot_token and bot_token.startswith("xoxb-"))
+    has_chan = bool(chan_id)
+
+    with diag_col1:
+        st.markdown("**App-Level Token (`xapp-`):**")
+        if has_app_tok:
+            st.success(f"✓ Configured ({app_token[:9]}...)")
+        else:
+            st.warning("⚠️ Missing / Invalid")
+
+    with diag_col2:
+        st.markdown("**Bot OAuth Token (`xoxb-`):**")
+        if has_bot_tok:
+            st.success(f"✓ Configured ({bot_token[:9]}...)")
+        else:
+            st.warning("⚠️ Missing / Invalid")
+
+    with diag_col3:
+        st.markdown("**Target Channel:**")
+        if has_chan:
+            st.info(f"✓ `{chan_id}`")
+        else:
+            st.warning("⚠️ Unset")
+
+    with diag_col4:
+        st.markdown("**Operating Mode:**")
+        if has_app_tok and has_bot_tok and has_chan:
+            st.markdown(
+                '<span style="background-color:rgba(16,185,129,0.15);color:#10b981;'
+                'padding:4px 10px;border-radius:4px;font-weight:700;">🟢 LIVE SOCKET MODE</span>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<span style="background-color:rgba(245,158,11,0.15);color:#f59e0b;'
+                'padding:4px 10px;border-radius:4px;font-weight:700;">🟡 OFFLINE SIMULATOR</span>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("---")
+
+    # 2. Interactive War-Room Session Simulator & Real Streamer
+    st.subheader("🧵 Multi-Persona War-Room Thread Streamer")
+
+    if "slack_thread_turns" not in st.session_state:
+        st.session_state.slack_thread_turns = []
+    if "slack_active_task" not in st.session_state:
+        st.session_state.slack_active_task = None
+    if "slack_gate_active" not in st.session_state:
+        st.session_state.slack_gate_active = False
+
+    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 1, 1])
+
+    with ctrl_col1:
+        selected_issue = st.selectbox(
+            "Target Issue for Slack War-Room:",
+            ["issue-101: Fix Fibonacci base case error (returns 2 for n=1)", "issue-102: Add timeout to HTTP request handler"],
+        )
+
+    with ctrl_col2:
+        post_to_live_slack = st.checkbox("Stream to live Slack channel", value=has_app_tok and has_bot_tok and has_chan)
+
+    with ctrl_col3:
+        start_btn = st.button("🚀 Initialize War-Room", use_container_width=True, type="primary")
+
+    if start_btn:
+        task_id = f"task-slack-{int(time.time())}"
+        st.session_state.slack_active_task = task_id
+        st.session_state.slack_thread_turns = []
+        st.session_state.slack_gate_active = False
+
+        create_task(task_id, issue_id=selected_issue.split(":")[0], budget_limit=150_000, db_path=db_path)
+
+        # Post / simulate root thread
+        root_text = f"🚨 *Autonomous SWE Swarm Initialized:* `{selected_issue}`\nTask ID: `{task_id}` | Budget Limit: `150,000` tokens"
+        st.session_state.slack_thread_turns.append(
+            {"role": "orchestrator", "text": root_text, "ts": datetime.now().strftime("%H:%M:%S"), "is_root": True}
+        )
+
+        # Atlas Plan
+        st.session_state.slack_thread_turns.append(
+            {
+                "role": "orchestrator",
+                "text": "🧭 *Atlas (Lead Architect):* Analyzed issue specifications.\n• Decomposed into 3 subtasks.\n• Provisioned isolated Git worktree.\n• Dispatching Sentinel for baseline verification.",
+                "ts": datetime.now().strftime("%H:%M:%S"),
+            }
+        )
+        record_turn_tokens(task_id, 1, 40_000, 10_000, 15_000, 65_000, db_path=db_path)
+
+        # Sentinel Baseline
+        st.session_state.slack_thread_turns.append(
+            {
+                "role": "qa",
+                "text": "🛡️ *Sentinel (QA Automation):* Executed test suite in worktree.\n❌ *Test Failure Confirmed:* `tests/test_calculator.py::test_fibonacci_base`\n```assert calculate_fibonacci(1) == 1 (returned 2)```\nRouting failure traceback to Forge.",
+                "ts": datetime.now().strftime("%H:%M:%S"),
+            }
+        )
+        record_turn_tokens(task_id, 2, 20_000, 5_000, 10_000, 35_000, db_path=db_path)
+
+        # Forge Patch
+        st.session_state.slack_thread_turns.append(
+            {
+                "role": "coder",
+                "text": "🛠️ *Forge (SWE Sub-Agent):* Received QA traceback. Located defect in `math_lib/calculator.py`.\nApplied patch: corrected base case conditional `return 2` -> `return 1`.\nRequesting Sentinel re-verification.",
+                "ts": datetime.now().strftime("%H:%M:%S"),
+            }
+        )
+        record_turn_tokens(task_id, 3, 30_000, 8_000, 12_000, 50_000, db_path=db_path)
+
+        # Budget Ceiling Reached (150k / 150k)
+        st.session_state.slack_gate_active = True
+        update_task_status(task_id, "PAUSED_BUDGET", db_path=db_path)
+        st.session_state.slack_thread_turns.append(
+            {
+                "role": "warden",
+                "text": "🛑 *Quota Warden:* Task budget ceiling reached (`150,000 / 150,000` tokens). Execution paused via `@post_turn` guard. Engineer approval required to proceed.",
+                "ts": datetime.now().strftime("%H:%M:%S"),
+                "is_gate": True,
+            }
+        )
+
+        st.rerun()
+
+    # Render Thread Messages
+    if st.session_state.slack_thread_turns:
+        st.markdown("#### 💬 Active Thread View")
+        for turn in st.session_state.slack_thread_turns:
+            role = turn.get("role", "orchestrator")
+            persona = get_persona(role)
+            icon = persona["icon_emoji"]
+            uname = persona["username"]
+
+            # Style card based on persona
+            border_color = (
+                "#4A90E2" if role == "orchestrator" else ("#10B981" if role == "qa" else ("#F59E0B" if role == "coder" else "#EF4444"))
+            )
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div style="border-left: 4px solid {border_color}; padding: 0.75rem 1rem; margin-bottom: 0.75rem; background-color: var(--secondary-background-color); border-radius: 4px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                            <strong>{icon} {uname}</strong>
+                            <span style="font-size: 0.8rem; opacity: 0.7;">{turn.get('ts')}</span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown(turn["text"])
+
+                # Render Block Kit Interactive Gate if active
+                if turn.get("is_gate") and st.session_state.slack_gate_active:
+                    st.warning("🛑 **Interactive Block Kit Approval Gate Active** (`action_id: grant_budget_50k` / `abort_task`)")
+                    gate_col1, gate_col2 = st.columns(2)
+                    with gate_col1:
+                        if st.button("⚡ Grant +50k Tokens", key="btn_grant_50k", type="primary", use_container_width=True):
+                            extend_task_budget(st.session_state.slack_active_task, additional_tokens=50_000, additional_turns=5, db_path=db_path)
+                            record_slack_event(
+                                event_type="grant_budget_50k",
+                                payload={"task_id": st.session_state.slack_active_task, "user": "StreamlitTester"},
+                                task_id=st.session_state.slack_active_task,
+                                user_id="U_STREAMLIT",
+                                db_path=db_path,
+                            )
+                            st.session_state.slack_gate_active = False
+                            st.session_state.slack_thread_turns.append(
+                                {
+                                    "role": "warden",
+                                    "text": "⚡ *Quota Extended:* `StreamlitTester` granted `+50,000` tokens (+5 turns). Task resumed.",
+                                    "ts": datetime.now().strftime("%H:%M:%S"),
+                                }
+                            )
+                            st.session_state.slack_thread_turns.append(
+                                {
+                                    "role": "qa",
+                                    "text": "🛡️ *Sentinel (QA Automation):* Re-ran full test suite on patched worktree.\n✅ *Result: PASSED (3/3 tests clean)*\n```================ 3 passed in 0.04s ===============```\nCode verified regression-free.",
+                                    "ts": datetime.now().strftime("%H:%M:%S"),
+                                }
+                            )
+                            st.session_state.slack_thread_turns.append(
+                                {
+                                    "role": "orchestrator",
+                                    "text": "🚀 *Atlas (Lead Architect):* Fix complete and verified. Block Kit Draft PR approval ready:\n• Branch: `fix/issue-101`\n• Diff: `math_lib/calculator.py | 2 +-`\n• Status: Ready for Human PR merge signoff.",
+                                    "ts": datetime.now().strftime("%H:%M:%S"),
+                                }
+                            )
+                            st.rerun()
+
+                    with gate_col2:
+                        if st.button("🛑 Abort Task", key="btn_abort_task", use_container_width=True):
+                            update_task_status(st.session_state.slack_active_task, "ABORTED", db_path=db_path)
+                            record_slack_event(
+                                event_type="abort_task",
+                                payload={"task_id": st.session_state.slack_active_task, "user": "StreamlitTester"},
+                                task_id=st.session_state.slack_active_task,
+                                user_id="U_STREAMLIT",
+                                db_path=db_path,
+                            )
+                            st.session_state.slack_gate_active = False
+                            st.session_state.slack_thread_turns.append(
+                                {
+                                    "role": "warden",
+                                    "text": "🛑 *Task Aborted:* Stopped by `StreamlitTester`. Isolated worktree retained.",
+                                    "ts": datetime.now().strftime("%H:%M:%S"),
+                                }
+                            )
+                            st.rerun()
+
+        # 3. Thread Steering Box
+        st.markdown("---")
+        st.subheader("💬 Human Thread Steering")
+        st.write("Simulate or submit real-time guidance directly into the active agent thread:")
+        steer_col1, steer_col2 = st.columns([4, 1])
+        with steer_col1:
+            steer_input = st.text_input(
+                "Steering Guidance:",
+                placeholder="e.g. Please also check edge cases for negative inputs or zero.",
+                key="steer_input_text",
+            )
+        with steer_col2:
+            st.write("")
+            send_steer = st.button("📨 Send", use_container_width=True)
+
+        if send_steer and steer_input:
+            st.session_state.slack_thread_turns.append(
+                {
+                    "role": "orchestrator",
+                    "text": f"👤 *Human Engineer:* {steer_input}\n*(Acknowledged by Atlas: Context enqueued for next turn)*",
+                    "ts": datetime.now().strftime("%H:%M:%S"),
+                }
+            )
+            record_slack_event(
+                event_type="thread_steering",
+                payload={"text": steer_input, "task_id": st.session_state.slack_active_task},
+                task_id=st.session_state.slack_active_task,
+                user_id="U_STREAMLIT",
+                db_path=db_path,
+            )
+            st.success("Steering guidance injected!")
+            st.rerun()
+
+    # 4. Slack Events Audit Table
+    st.markdown("---")
+    st.subheader("📋 Slack Interaction Audit Ledger (`slack_events`)")
+    events = get_slack_events(db_path=db_path)
+    if events:
+        st.dataframe(pd.DataFrame(events), use_container_width=True)
+    else:
+        st.info("No Slack events recorded yet.")
+

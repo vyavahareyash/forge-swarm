@@ -58,6 +58,18 @@ def init_db(db_path: Optional[str] = None) -> None:
                 );
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS slack_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT,
+                    event_type TEXT NOT NULL,
+                    user_id TEXT,
+                    payload TEXT NOT NULL,
+                    timestamp TEXT NOT NULL
+                );
+                """
+            )
     finally:
         conn.close()
 
@@ -235,3 +247,75 @@ def get_turn_history(task_id: str, db_path: Optional[str] = None) -> List[Dict[s
         return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def get_task_by_thread_ts(slack_thread_ts: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve task record by associated Slack thread timestamp."""
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM tasks WHERE slack_thread_ts = ?;",
+            (slack_thread_ts,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def update_task_thread_ts(task_id: str, slack_thread_ts: str, db_path: Optional[str] = None) -> None:
+    """Update task's Slack thread timestamp."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE tasks SET slack_thread_ts = ?, updated_at = ? WHERE task_id = ?;",
+                (slack_thread_ts, now, task_id),
+            )
+    finally:
+        conn.close()
+
+
+def record_slack_event(
+    event_type: str,
+    payload: Any,
+    task_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    db_path: Optional[str] = None,
+) -> None:
+    """Record a Slack event or interaction for audit history."""
+    import json
+    now = datetime.now(timezone.utc).isoformat()
+    payload_str = json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO slack_events (task_id, event_type, user_id, payload, timestamp)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (task_id, event_type, user_id, payload_str, now),
+            )
+    finally:
+        conn.close()
+
+
+def get_slack_events(task_id: Optional[str] = None, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieve recorded Slack events for audit trail."""
+    conn = get_connection(db_path)
+    try:
+        if task_id:
+            cursor = conn.execute(
+                "SELECT * FROM slack_events WHERE task_id = ? ORDER BY id ASC;",
+                (task_id,),
+            )
+        else:
+            cursor = conn.execute("SELECT * FROM slack_events ORDER BY id DESC LIMIT 50;")
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()
+
