@@ -19,6 +19,9 @@ def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     conn = sqlite3.connect(target_path, uri=target_path.startswith("file:"))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    if not str(target_path).startswith("file:") and ":memory:" not in str(target_path):
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA busy_timeout = 5000;")
     return conn
 
 
@@ -139,6 +142,32 @@ def get_task(task_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, 
         if not row:
             return None
         return dict(row)
+    finally:
+        conn.close()
+
+
+def list_tasks(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    db_path: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Retrieve tasks with optional status and search filtering."""
+    conn = get_connection(db_path)
+    try:
+        query = "SELECT * FROM tasks WHERE 1=1"
+        params: List[Any] = []
+        if status and status.upper() != "ALL":
+            query += " AND status = ?"
+            params.append(status.upper())
+        if search:
+            query += " AND (task_id LIKE ? OR issue_id LIKE ?)"
+            term = f"%{search}%"
+            params.extend([term, term])
+        query += " ORDER BY updated_at DESC LIMIT ?;"
+        params.append(limit)
+        cursor = conn.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()
 
