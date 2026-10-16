@@ -55,6 +55,7 @@ An event-driven, issue-triggered autonomous multi-agent engineering swarm powere
   - [0002: Ephemeral Git Worktrees for Isolation](docs/adr/0002-use-ephemeral-git-worktrees-for-isolation.md)
   - [0003: Slack Socket Mode with Persona Customization](docs/adr/0003-use-slack-socket-mode-with-persona-customization.md)
   - [0004: Post-Turn Budget Enforcement Hooks](docs/adr/0004-enforce-task-budgets-via-post-turn-hooks.md)
+  - [0005: Dedicated Fixture Sample Repository for Testing](docs/adr/0005-use-dedicated-fixture-sample-repo-for-testing.md)
 
 ---
 

@@ -62,14 +62,15 @@ Verify that `google-antigravity` initializes without `GEMINI_API_KEY` (inheritin
 Verify that the host can provision and prune isolated Git worktrees (`./workspaces/issue-<id>`), coordinate sub-agents using structured Pydantic outputs (`ImplementationPlan`, `QATestReport`), and run a bounded 3-retry self-correction loop against a synthetic broken test.
 
 ### Deliverables
-1. `src/worktree.py`: `WorktreeManager` class wrapping `git worktree add -b fix/issue-<id>` and `git worktree remove --force`.
-2. `src/schemas.py`: Pydantic schemas for `SubTask`, `ImplementationPlan`, and `QATestReport`.
-3. `skills/coder/SKILL.md` & `skills/qa/SKILL.md`: Sub-agent system instructions and scoped file access limits.
-4. `src/agents/orchestrator.py`: Orchestrator logic delegating to Coder and QA with tiered thinking levels (`HIGH` for Orchestrator, `MEDIUM` for Coder, `MINIMAL` for QA).
-5. `poc/stage2_worktree_swarm.py`: Standalone script running an intentional bug fixture in an isolated worktree, observing QA failure, routing the traceback back to Coder, and verifying that the fix passes on attempt 2 or 3.
+1. `tests/fixtures/sample_repo/`: Minimal dedicated Git testbed repository containing a Python package and a deliberately failing unit test (`test_math.py`).
+2. `src/worktree.py`: `WorktreeManager` class wrapping `git worktree add -b fix/issue-<id>` and `git worktree remove --force`.
+3. `src/schemas.py`: Pydantic schemas for `SubTask`, `ImplementationPlan`, and `QATestReport`.
+4. `skills/coder/SKILL.md` & `skills/qa/SKILL.md`: Sub-agent system instructions and scoped file access limits.
+5. `src/agents/orchestrator.py`: Orchestrator logic delegating to Coder and QA with tiered thinking levels (`HIGH` for Orchestrator, `MEDIUM` for Coder, `MINIMAL` for QA).
+6. `poc/stage2_worktree_swarm.py`: Standalone script running an intentional bug fixture in an isolated worktree branched from `sample_repo`, observing QA failure, routing the traceback back to Coder, and verifying that the fix passes on attempt 2 or 3.
 
 ### Acceptance Criteria
-- [ ] Target repository root working tree is unchanged during and after the run.
+- [ ] `tests/fixtures/sample_repo` serves as an isolated testbed; parent repo working tree remains untouched.
 - [ ] Orchestrator produces a valid `ImplementationPlan`.
 - [ ] QA catches the failing test on turn 1 and confirms green status after Coder fix.
 - [ ] Max retry count (3) is strictly enforced if tests remain failing.
