@@ -13,20 +13,18 @@ Orchestrates the entire lifecycle for an issue:
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from src.agents.orchestrator import Orchestrator
 from src.schemas import SwarmExecutionResult, SwarmTurnLog
 from src.slack.approvals import build_draft_pr_blocks
 from src.slack.bot import SlackWarRoomBot
-from src.slack.personas import post_agent_message
 from src.storage.db import (
     create_task,
-    get_task,
     init_db,
-    record_slack_event,
     update_task_status,
     update_task_thread_ts,
 )
@@ -44,10 +42,10 @@ class PipelineExecutionResult:
         task_id: str,
         issue_id: str,
         status: str,
-        swarm_result: Optional[SwarmExecutionResult] = None,
-        pr_url: Optional[str] = None,
-        thread_ts: Optional[str] = None,
-        error_message: Optional[str] = None,
+        swarm_result: SwarmExecutionResult | None = None,
+        pr_url: str | None = None,
+        thread_ts: str | None = None,
+        error_message: str | None = None,
     ):
         self.task_id = task_id
         self.issue_id = issue_id
@@ -66,12 +64,12 @@ class E2EPipeline:
 
     def __init__(
         self,
-        target_repo_path: Optional[str] = None,
-        poller: Optional[GitHubPoller] = None,
-        bot: Optional[SlackWarRoomBot] = None,
-        orchestrator: Optional[Orchestrator] = None,
-        worktree_manager: Optional[WorktreeManager] = None,
-        db_path: Optional[str] = None,
+        target_repo_path: str | None = None,
+        poller: GitHubPoller | None = None,
+        bot: SlackWarRoomBot | None = None,
+        orchestrator: Orchestrator | None = None,
+        worktree_manager: WorktreeManager | None = None,
+        db_path: str | None = None,
         mode: str = "standalone",
     ):
         self.target_repo_path = Path(
@@ -95,16 +93,16 @@ class E2EPipeline:
         auto_approve_pr: bool = False,
         budget_limit: int = 150_000,
         max_retries: int = 3,
-        on_status_update: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        on_status_update: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> PipelineExecutionResult:
         """
         Executes end-to-end workflow for a single GitHubIssue.
         """
         issue_id = issue.issue_id
-        task_id = f"task-{issue_id}-{int(datetime.now(timezone.utc).timestamp())}"
+        task_id = f"task-{issue_id}-{int(datetime.now(UTC).timestamp())}"
         branch_name = f"fix/{issue_id}"
-        thread_ts: Optional[str] = None
-        worktree_path: Optional[Path] = None
+        thread_ts: str | None = None
+        worktree_path: Path | None = None
 
         logger.info("Starting pipeline execution for %s (task: %s)", issue_id, task_id)
         if on_status_update:
@@ -225,7 +223,7 @@ class E2EPipeline:
                 )
                 await self.bot.post_agent(
                     role="orchestrator",
-                    text=f"🚀 *Draft PR Approval Gate:* Verification clean. Awaiting engineer signoff.",
+                    text="🚀 *Draft PR Approval Gate:* Verification clean. Awaiting engineer signoff.",
                     thread_ts=thread_ts,
                     blocks=pr_blocks,
                 )

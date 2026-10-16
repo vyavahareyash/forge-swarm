@@ -21,7 +21,6 @@ import asyncio
 import os
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 # Add project root to path
@@ -57,7 +56,7 @@ async def run_stage4_poc(mock_mode: bool = False, auto_approve: bool = False):
         await run_mock_pipeline(db_path)
         return
 
-    print(f"\n[1/6] Connecting to GitHub & Slack Services...")
+    print("\n[1/6] Connecting to GitHub & Slack Services...")
     print(f"      Target Repo Path: {target_repo_path}")
     print(f"      GitHub Repo:      {github_repo}")
     print(f"      Slack Channel:    {channel_id}")

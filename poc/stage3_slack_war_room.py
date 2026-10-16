@@ -16,8 +16,7 @@ import argparse
 import asyncio
 import os
 import sys
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add project root to sys.path
@@ -30,11 +29,9 @@ from src.slack.approvals import (
     build_draft_pr_blocks,
 )
 from src.slack.bot import SlackWarRoomBot
-from src.slack.personas import post_agent_message
 from src.storage.db import (
     create_task,
     get_task,
-    get_turn_history,
     init_db,
     record_turn_tokens,
     update_task_thread_ts,
@@ -60,7 +57,7 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
         await run_mock_war_room(db_path)
         return
 
-    print(f"\n[1/5] Initializing Slack Socket Mode Bot...")
+    print("\n[1/5] Initializing Slack Socket Mode Bot...")
     print(f"      Channel ID: {channel_id}")
     bot = SlackWarRoomBot(
         bot_token=bot_token,
@@ -75,7 +72,7 @@ async def run_stage3_war_room(mock_mode: bool = False) -> None:
     await asyncio.sleep(2.0)
     print("      ✓ Socket Mode connected successfully (zero incoming firewall ports)")
 
-    task_id = f"task-issue-101-{int(datetime.now(timezone.utc).timestamp())}"
+    task_id = f"task-issue-101-{int(datetime.now(UTC).timestamp())}"
     issue_id = "issue-101"
 
     create_task(

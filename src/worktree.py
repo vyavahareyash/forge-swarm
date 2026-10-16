@@ -8,8 +8,8 @@ import contextlib
 import os
 import shutil
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator, Optional
 
 
 class WorktreeError(RuntimeError):
@@ -20,7 +20,7 @@ class WorktreeError(RuntimeError):
 class WorktreeManager:
     """Manages ephemeral Git worktree creation, diff tracking, and cleanup."""
 
-    def __init__(self, workspace_root: Optional[str] = None):
+    def __init__(self, workspace_root: str | None = None):
         self.workspace_root = Path(workspace_root or os.path.abspath("workspaces"))
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
@@ -42,7 +42,7 @@ class WorktreeManager:
         self,
         repo_path: str | Path,
         issue_id: str,
-        branch_name: Optional[str] = None,
+        branch_name: str | None = None,
         base_branch: str = "main",
     ) -> Path:
         """
@@ -152,7 +152,7 @@ class WorktreeManager:
         self,
         repo_path: str | Path,
         issue_id: str,
-        branch_name: Optional[str] = None,
+        branch_name: str | None = None,
         base_branch: str = "main",
         cleanup: bool = True,
     ) -> Generator[Path, None, None]:

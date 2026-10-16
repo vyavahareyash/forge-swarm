@@ -3,6 +3,7 @@ Unit and integration tests for Slack Multi-Persona bridge, Block Kit approvals, 
 """
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from src.slack.approvals import (
@@ -11,11 +12,10 @@ from src.slack.approvals import (
     build_policy_gate_blocks,
 )
 from src.slack.bot import SlackWarRoomBot
-from src.slack.personas import AGENT_PERSONAS, get_persona, post_agent_message
+from src.slack.personas import get_persona, post_agent_message
 from src.storage.db import (
     create_task,
     get_slack_events,
-    get_task,
     get_task_by_thread_ts,
     init_db,
     record_slack_event,

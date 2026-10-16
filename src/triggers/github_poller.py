@@ -12,10 +12,12 @@ import json
 import logging
 import os
 import subprocess
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any
+
 from pydantic import BaseModel, Field
 
-from src.storage.db import get_connection, get_task
+from src.storage.db import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +27,8 @@ class GitHubIssue(BaseModel):
     number: int
     title: str
     body: str = ""
-    labels: List[str] = Field(default_factory=list)
-    url: Optional[str] = None
+    labels: list[str] = Field(default_factory=list)
+    url: str | None = None
 
     @property
     def issue_id(self) -> str:
@@ -46,10 +48,10 @@ class GitHubPoller:
 
     def __init__(
         self,
-        repo: Optional[str] = None,
+        repo: str | None = None,
         poll_interval: float = 30.0,
-        db_path: Optional[str] = None,
-        command_runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+        db_path: str | None = None,
+        command_runner: Callable[..., subprocess.CompletedProcess] | None = None,
     ):
         self.repo = repo or os.getenv("GITHUB_REPO")
         self.poll_interval = poll_interval
@@ -57,7 +59,7 @@ class GitHubPoller:
         self._command_runner = command_runner or subprocess.run
         self._is_running = False
 
-    def _run_gh(self, args: List[str], cwd: Optional[str] = None) -> subprocess.CompletedProcess:
+    def _run_gh(self, args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
         """Run gh command and return CompletedProcess, raising GitHubPollerError on failure."""
         cmd = ["gh"] + args
         try:
@@ -77,7 +79,7 @@ class GitHubPoller:
             )
         return res
 
-    def fetch_ready_issues(self) -> List[GitHubIssue]:
+    def fetch_ready_issues(self) -> list[GitHubIssue]:
         """
         Queries `gh issue list --repo <repo> --label agent-ready --json number,title,body,labels,url`.
         Returns parsed list of GitHubIssue objects, filtering out already tracked active/completed tasks.
@@ -104,7 +106,7 @@ class GitHubPoller:
             logger.error("Failed to fetch issues from GitHub: %s", e)
             return []
 
-        issues: List[GitHubIssue] = []
+        issues: list[GitHubIssue] = []
         for item in raw_data:
             # Extract label names
             labels_raw = item.get("labels", [])

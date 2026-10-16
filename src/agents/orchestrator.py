@@ -9,18 +9,16 @@ Implements Stage 2: Multi-Agent Swarm with Tiered Thinking:
 Autonomous 3-retry self-correction loop against isolated worktrees.
 """
 import asyncio
-import json
 import os
 import re
 import shutil
-import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
-from src.agents.agy_runner import AgyRunner, AgyTurnResult, find_agy_binary
-from src.agents.hooks import BudgetGuard
+from src.agents.agy_runner import AgyRunner, find_agy_binary
 from src.schemas import (
     ImplementationPlan,
     LivingSpec,
@@ -32,13 +30,11 @@ from src.schemas import (
 )
 from src.storage.db import (
     create_task,
-    get_task,
     init_db,
     record_turn_tokens,
     update_task_status,
 )
 from src.storage.session_manager import SessionManager
-
 from src.worktree import WorktreeManager
 
 
@@ -48,7 +44,7 @@ class QASubAgent:
     def __init__(self, worktree_path: Path):
         self.worktree_path = worktree_path
 
-    async def run_tests(self, test_cmd: Optional[str] = None) -> tuple[QATestReport, int]:
+    async def run_tests(self, test_cmd: str | None = None) -> tuple[QATestReport, int]:
         """Runs test command inside worktree and returns (QATestReport, tokens_spent)."""
         tokens_spent = 350  # Telemetry baseline for QA telemetry
         cmd = test_cmd or f"{sys.executable} -m pytest -c pyproject.toml -p no:deepeval tests/"
@@ -113,7 +109,7 @@ class QASubAgent:
 class CoderSubAgent:
     """Forge: Scoped file editor applying patches in the worktree."""
 
-    def __init__(self, worktree_path: Path, runner: Optional[AgyRunner] = None):
+    def __init__(self, worktree_path: Path, runner: AgyRunner | None = None):
         self.worktree_path = worktree_path
         self.runner = runner
 
@@ -198,9 +194,9 @@ class Orchestrator:
 
     def __init__(
         self,
-        workspace_manager: Optional[WorktreeManager] = None,
-        db_path: Optional[str] = None,
-        sessions_dir: Optional[str] = None,
+        workspace_manager: WorktreeManager | None = None,
+        db_path: str | None = None,
+        sessions_dir: str | None = None,
     ):
         self.wm = workspace_manager or WorktreeManager()
         self.db_path = db_path or os.path.abspath("storage/state.db")
@@ -215,7 +211,7 @@ class Orchestrator:
         issue_id: str,
         issue_desc: str,
         mode: str = "standalone",
-        runner: Optional[AgyRunner] = None,
+        runner: AgyRunner | None = None,
     ) -> tuple[ImplementationPlan, int]:
         """Atlas generates high-level structured implementation plan (High thinking)."""
         tokens_spent = 2100
@@ -264,13 +260,13 @@ class Orchestrator:
         budget_limit: int = 150_000,
         max_retries: int = 3,
         mode: str = "standalone",
-        on_turn_callback: Optional[Callable[[SwarmTurnLog], Any]] = None,
+        on_turn_callback: Callable[[SwarmTurnLog], Any] | None = None,
         cleanup_worktree: bool = True,
     ) -> SwarmExecutionResult:
         """
         Executes the autonomous swarm loop inside an isolated worktree.
         """
-        task_id = f"task-{issue_id}-{int(datetime.now(timezone.utc).timestamp())}"
+        task_id = f"task-{issue_id}-{int(datetime.now(UTC).timestamp())}"
         create_task(
             task_id=task_id,
             issue_id=issue_id,
@@ -288,7 +284,7 @@ class Orchestrator:
             architecture_decisions=[],
             review_state={"retries_used": 0, "status": "RUNNING"},
             open_questions=[],
-            updated_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(UTC).isoformat(),
         )
         self.session_manager.init_session(
             task_id=task_id,
@@ -296,7 +292,7 @@ class Orchestrator:
             living_spec=living_spec,
         )
 
-        trajectory: List[SwarmTurnLog] = []
+        trajectory: list[SwarmTurnLog] = []
         total_tokens = 0
         branch_name = f"fix/{issue_id}"
 
@@ -335,7 +331,7 @@ class Orchestrator:
                 tool_results=details.get("tool_results", []),
                 response_text=details.get("summary") or details.get("response"),
                 tokens_spent=tokens,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
                 details=details,
             )
             self.session_manager.append_turn(task_id, turn_record)
@@ -463,7 +459,7 @@ class Orchestrator:
                 final_session.status = status
                 final_session.retries_used = retries
                 final_session.plan = plan
-                final_session.updated_at = datetime.now(timezone.utc).isoformat()
+                final_session.updated_at = datetime.now(UTC).isoformat()
                 self.session_manager._atomic_write_json(
                     self.session_manager._get_session_path(task_id),
                     final_session.model_dump(),

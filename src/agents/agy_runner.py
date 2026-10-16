@@ -10,7 +10,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class AgyNotInstalledError(RuntimeError):
@@ -30,10 +30,10 @@ class AgyTurnResult:
     candidates_tokens: int = 0
     thoughts_tokens: int = 0
     total_tokens: int = 0
-    raw_response: Optional[Dict[str, Any]] = None
+    raw_response: dict[str, Any] | None = None
 
     @property
-    def usage_dict(self) -> Dict[str, int]:
+    def usage_dict(self) -> dict[str, int]:
         return {
             "prompt_token_count": self.prompt_tokens,
             "candidates_token_count": self.candidates_tokens,
@@ -42,7 +42,7 @@ class AgyTurnResult:
         }
 
 
-def find_agy_binary() -> Optional[str]:
+def find_agy_binary() -> str | None:
     """Find path to agy binary on host machine."""
     env_path = os.getenv("AGY_PATH")
     if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
@@ -69,7 +69,7 @@ def find_agy_binary() -> Optional[str]:
 class AgyRunner:
     """Invokes agy in headless print mode (-p) with JSON output."""
 
-    def __init__(self, agy_path: Optional[str] = None):
+    def __init__(self, agy_path: str | None = None):
         self.agy_path = agy_path or find_agy_binary()
 
     def is_available(self) -> bool:
@@ -78,7 +78,7 @@ class AgyRunner:
     async def execute_turn(
         self,
         prompt: str,
-        workspace_dir: Optional[str] = None,
+        workspace_dir: str | None = None,
         timeout: float = 180.0,
     ) -> AgyTurnResult:
         """
@@ -113,7 +113,7 @@ class AgyRunner:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             raise TimeoutError(f"agy prompt execution timed out after {timeout}s")
 

@@ -1,14 +1,13 @@
 """Unit tests for budget enforcement hooks, SQLite state, and safety policies."""
-import asyncio
 import os
 import tempfile
+
 import pytest
 
 from src.agents.hooks import BudgetGuard, TurnUsage
 from src.agents.policies import (
     Decision,
     PolicyEngine,
-    PolicyRule,
     create_agent_policies,
     is_dangerous_command,
     is_git_push,
@@ -17,9 +16,7 @@ from src.agents.policies import (
 from src.storage.db import (
     create_task,
     get_task,
-    get_turn_history,
     init_db,
-    record_turn_tokens,
 )
 
 

@@ -11,20 +11,16 @@ Verifies:
 7. End-to-end Orchestrator persistence loop.
 """
 import json
-import os
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from src.agents.orchestrator import Orchestrator
 from src.schemas import (
-    ImplementationPlan,
     LivingSpec,
-    SessionTrajectory,
-    SubTask,
     ToolInvocation,
     ToolResultRecord,
     TurnRecord,
@@ -33,13 +29,11 @@ from src.storage.db import (
     create_task,
     get_connection,
     get_living_spec,
-    get_task,
-    get_task_by_id_or_thread,
     init_db,
     save_living_spec,
     update_living_spec,
 )
-from src.storage.session_manager import RehydratedContext, SessionManager
+from src.storage.session_manager import SessionManager
 
 
 @pytest.fixture
@@ -91,7 +85,7 @@ def test_living_spec_crud_and_versioning(temp_storage):
         architecture_decisions=["Use SQLite WAL mode", "Adopt TurnRecord model"],
         review_state={"status": "IN_PROGRESS", "retries": 0},
         open_questions=["Should cache be in memory?"],
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(UTC).isoformat(),
     )
 
     saved = save_living_spec(spec, db_path=db_path)
@@ -139,7 +133,7 @@ def test_living_spec_cascade_delete(temp_storage):
         architecture_decisions=[],
         review_state={},
         open_questions=[],
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(UTC).isoformat(),
     )
     save_living_spec(spec, db_path=db_path)
     assert get_living_spec(task_id, db_path=db_path) is not None
@@ -171,7 +165,7 @@ def test_session_manager_init_and_atomic_write(temp_storage):
         architecture_decisions=["Atomic file replacement"],
         review_state={},
         open_questions=[],
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(UTC).isoformat(),
     )
 
     session = sm.init_session(
@@ -234,7 +228,7 @@ def test_append_turn_incremental_and_typed_records(temp_storage):
         ],
         response_text="Completed architecture plan with 3 subtasks.",
         tokens_spent=1200,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         details={"plan_summary": "Architecture plan"},
     )
 
@@ -254,7 +248,7 @@ def test_append_turn_incremental_and_typed_records(temp_storage):
         tool_results=[],
         response_text="Created src/storage/session_manager.py",
         tokens_spent=1800,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         details={"files_modified": ["src/storage/session_manager.py"]},
     )
 
@@ -295,7 +289,7 @@ def test_rehydration_by_task_id_and_thread_ts(temp_storage):
         architecture_decisions=["Thread-aware lookup"],
         review_state={"phase": "ACTIVE"},
         open_questions=[],
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(UTC).isoformat(),
     )
     sm.init_session(task_id=task_id, issue_id="issue-rehydrate", living_spec=spec)
 
@@ -308,7 +302,7 @@ def test_rehydration_by_task_id_and_thread_ts(temp_storage):
             action="Started Task",
             thinking_level="HIGH",
             tokens_spent=500,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         ),
     )
 
@@ -442,8 +436,8 @@ def test_backward_compatibility_with_legacy_json(temp_storage):
 @pytest.mark.asyncio
 async def test_orchestrator_persistence_integration(temp_storage):
     """Verify Orchestrator creates living spec and persists incremental turns during task execution."""
-    from tests.fixtures.sample_repo import ensure_sample_repo
     from src.worktree import WorktreeManager
+    from tests.fixtures.sample_repo import ensure_sample_repo
 
     repo_path = ensure_sample_repo(target_dir=temp_storage["dir"] / "sample_repo", reset=True)
     wm = WorktreeManager(workspace_root=str(temp_storage["dir"] / "workspaces"))

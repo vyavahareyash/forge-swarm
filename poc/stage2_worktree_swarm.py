@@ -13,7 +13,6 @@ Verifies:
 import asyncio
 import os
 import sys
-from pathlib import Path
 
 # Ensure repository root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -75,7 +74,7 @@ async def run_stage2_poc(mode: str = "standalone") -> int:
     print(f"   Status:        {result.status}")
     print(f"   Retries Used:  {result.retries_used} / 3")
     print(f"   Tokens Spent:  {result.tokens_spent:,} tokens")
-    print(f"   Worktree:      Cleanly pruned")
+    print("   Worktree:      Cleanly pruned")
     print(f"   Session File:  storage/sessions/{result.task_id}.json")
     print("=" * 65)
 

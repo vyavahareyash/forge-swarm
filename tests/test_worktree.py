@@ -2,10 +2,10 @@
 Unit tests for WorktreeManager and ephemeral worktree isolation (ADR 0002).
 """
 import subprocess
-from pathlib import Path
+
 import pytest
 
-from src.worktree import WorktreeError, WorktreeManager
+from src.worktree import WorktreeManager
 from tests.fixtures.sample_repo import ensure_sample_repo
 
 

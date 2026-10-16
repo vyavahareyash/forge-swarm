@@ -10,21 +10,15 @@ Manages:
 import asyncio
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from dotenv import load_dotenv
-from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
+from slack_bolt.async_app import AsyncApp
 
-from src.slack.approvals import (
-    build_budget_exhaustion_blocks,
-    build_draft_pr_blocks,
-    build_policy_gate_blocks,
-)
 from src.slack.personas import post_agent_message
 from src.storage.db import (
     extend_task_budget,
-    get_task,
     get_task_by_thread_ts,
     record_slack_event,
     update_task_status,
@@ -42,10 +36,10 @@ class SlackWarRoomBot:
 
     def __init__(
         self,
-        bot_token: Optional[str] = None,
-        app_token: Optional[str] = None,
-        default_channel: Optional[str] = None,
-        db_path: Optional[str] = None,
+        bot_token: str | None = None,
+        app_token: str | None = None,
+        default_channel: str | None = None,
+        db_path: str | None = None,
     ):
         load_dotenv()
         self.bot_token = bot_token or os.getenv("SLACK_BOT_TOKEN")
@@ -54,12 +48,12 @@ class SlackWarRoomBot:
         self.db_path = db_path
         self.session_manager = SessionManager(db_path=self.db_path)
 
-        self.active_gates: Dict[str, asyncio.Event] = {}
-        self.gate_decisions: Dict[str, Dict[str, Any]] = {}
-        self.steering_queues: Dict[str, asyncio.Queue[str]] = {}
+        self.active_gates: dict[str, asyncio.Event] = {}
+        self.gate_decisions: dict[str, dict[str, Any]] = {}
+        self.steering_queues: dict[str, asyncio.Queue[str]] = {}
 
-        self.app: Optional[AsyncApp] = None
-        self.handler: Optional[AsyncSocketModeHandler] = None
+        self.app: AsyncApp | None = None
+        self.handler: AsyncSocketModeHandler | None = None
         self.is_connected: bool = False
 
         if self.bot_token and self.app_token:
@@ -333,14 +327,14 @@ class SlackWarRoomBot:
         self.gate_decisions.pop(gate_id, None)
         return event
 
-    def resolve_gate(self, gate_id: str, decision: Dict[str, Any]) -> None:
+    def resolve_gate(self, gate_id: str, decision: dict[str, Any]) -> None:
         """Resolves an active gate, unblocking waiting coroutines."""
         self.gate_decisions[gate_id] = decision
         event = self.active_gates.get(gate_id)
         if event:
             event.set()
 
-    async def wait_for_decision(self, gate_id: str, timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    async def wait_for_decision(self, gate_id: str, timeout: float | None = None) -> dict[str, Any] | None:
         """Wait until human engineer resolves the gate in Slack."""
         event = self.active_gates.get(gate_id)
         if not event:
@@ -352,14 +346,14 @@ class SlackWarRoomBot:
             else:
                 await event.wait()
             return self.gate_decisions.get(gate_id)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
-    def rehydrate_session(self, identifier: str) -> Optional[RehydratedContext]:
+    def rehydrate_session(self, identifier: str) -> RehydratedContext | None:
         """Reconstitutes task and conversation context from task_id or slack_thread_ts."""
         return self.session_manager.rehydrate(identifier)
 
-    async def get_steering_instruction(self, task_id: str) -> Optional[str]:
+    async def get_steering_instruction(self, task_id: str) -> str | None:
 
         """Check for pending steering context from human thread replies."""
         queue = self.steering_queues.get(task_id)
@@ -371,10 +365,10 @@ class SlackWarRoomBot:
         self,
         role: str,
         text: str,
-        channel: Optional[str] = None,
-        thread_ts: Optional[str] = None,
-        blocks: Optional[List[Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
+        channel: str | None = None,
+        thread_ts: str | None = None,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Dispatch persona message through the Slack client."""
         target_channel = channel or self.default_channel
         if not target_channel:

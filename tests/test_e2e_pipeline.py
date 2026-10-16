@@ -1,7 +1,6 @@
 """Integration tests for End-to-End Pipeline execution."""
-import os
 import pytest
-from pathlib import Path
+
 from src.pipeline import E2EPipeline
 from src.storage.db import get_task, init_db
 from src.triggers.github_poller import GitHubIssue

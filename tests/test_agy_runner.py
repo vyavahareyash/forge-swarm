@@ -1,12 +1,11 @@
 """Unit tests for AgyRunner headless parser and error conditions."""
 import json
+
 import pytest
 
 from src.agents.agy_runner import (
-    AgyAuthenticationError,
     AgyNotInstalledError,
     AgyRunner,
-    AgyTurnResult,
 )
 
 

@@ -1,12 +1,12 @@
 """Lifecycle hooks for token metering, budget governance, and pause gates."""
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 from src.storage.db import (
     extend_task_budget as db_extend_budget,
-    get_task,
     record_turn_tokens,
     update_task_status,
 )
@@ -63,8 +63,8 @@ class BudgetGuard:
         task_id: str,
         budget_limit: int = 150_000,
         turn_limit: int = 15,
-        db_path: Optional[str] = None,
-        on_budget_exceeded: Optional[Callable[["BudgetGuard", Dict[str, Any]], Any]] = None,
+        db_path: str | None = None,
+        on_budget_exceeded: Callable[["BudgetGuard", dict[str, Any]], Any] | None = None,
     ):
         self.task_id = task_id
         self.budget_limit = budget_limit
@@ -89,7 +89,7 @@ class BudgetGuard:
         turn_index: int,
         usage_data: Any,
         is_cumulative: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Processes post-turn token counts, updates SQLite, and evaluates quota ceiling.
         """
@@ -145,7 +145,7 @@ class BudgetGuard:
 
         return record
 
-    async def wait_if_paused(self, timeout: Optional[float] = None) -> bool:
+    async def wait_if_paused(self, timeout: float | None = None) -> bool:
         """
         Wait until execution is resumed or timeout expires.
         Returns True if execution can proceed, False if timed out.
@@ -155,10 +155,10 @@ class BudgetGuard:
         try:
             await asyncio.wait_for(self.proceed_event.wait(), timeout=timeout)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
-    def extend_budget(self, additional_tokens: int, additional_turns: int = 5) -> Dict[str, Any]:
+    def extend_budget(self, additional_tokens: int, additional_turns: int = 5) -> dict[str, Any]:
         """
         Grants additional tokens and unblocks the pause gate.
         """

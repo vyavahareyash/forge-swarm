@@ -13,17 +13,16 @@ import os
 import signal
 import sys
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.agents.agy_runner import find_agy_binary
 from src.pipeline import E2EPipeline
 from src.slack.bot import SlackWarRoomBot
 from src.storage.db import init_db
 from src.triggers.github_poller import GitHubIssue, GitHubPoller
-from src.agents.agy_runner import find_agy_binary
 
 # Configure structured logging
 logging.basicConfig(
@@ -37,7 +36,7 @@ logger = logging.getLogger("npc_daemon")
 class AgentTeamDaemon:
     """Production daemon running Slack Socket Mode, GitHub Poller, and Task Pipeline."""
 
-    def __init__(self, mode: Optional[str] = None):
+    def __init__(self, mode: str | None = None):
         load_dotenv()
         agy_bin = find_agy_binary()
         self.mode = mode or ("agy" if agy_bin else "standalone")
@@ -52,7 +51,7 @@ class AgentTeamDaemon:
         self.target_repo_path = os.getenv("TARGET_REPO_PATH")
 
         # Core components
-        self.bot: Optional[SlackWarRoomBot] = None
+        self.bot: SlackWarRoomBot | None = None
         if self.bot_token and self.app_token:
             self.bot = SlackWarRoomBot(
                 bot_token=self.bot_token,
@@ -61,7 +60,7 @@ class AgentTeamDaemon:
                 db_path=self.db_path,
             )
 
-        self.poller: Optional[GitHubPoller] = None
+        self.poller: GitHubPoller | None = None
         if self.github_repo:
             self.poller = GitHubPoller(
                 repo=self.github_repo,

@@ -4,12 +4,12 @@ Slack Multi-Persona Bridge for Autonomous Multi-Agent Swarm.
 Uses single Slack Bot OAuth token with `chat:write.customize` scope
 to post messages appearing as distinct agent teammates within a shared thread.
 """
-from typing import Any, Dict, List, Optional
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-AGENT_PERSONAS: Dict[str, Dict[str, str]] = {
+AGENT_PERSONAS: dict[str, dict[str, str]] = {
     "orchestrator": {
         "username": "Atlas (Lead Architect)",
         "icon_emoji": ":compass:",
@@ -33,7 +33,7 @@ AGENT_PERSONAS: Dict[str, Dict[str, str]] = {
 }
 
 
-def get_persona(role: str) -> Dict[str, str]:
+def get_persona(role: str) -> dict[str, str]:
     """Retrieve persona config by role key (orchestrator, coder, qa, warden)."""
     normalized = role.lower().strip()
     if "lead" in normalized or "atlas" in normalized or "orch" in normalized:
@@ -52,9 +52,9 @@ async def post_agent_message(
     channel: str,
     role: str,
     text: str,
-    thread_ts: Optional[str] = None,
-    blocks: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
+    thread_ts: str | None = None,
+    blocks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """
     Post a message to Slack with custom persona (username and emoji avatar).
 
@@ -70,7 +70,7 @@ async def post_agent_message(
         Slack API response dictionary.
     """
     persona = get_persona(role)
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "channel": channel,
         "text": text,
         "username": persona["username"],

@@ -1,7 +1,6 @@
 """
 Unit tests for structured Pydantic schemas.
 """
-import pytest
 from src.schemas import (
     ImplementationPlan,
     QATestReport,

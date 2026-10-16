@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def build_budget_exhaustion_blocks(
@@ -7,8 +7,8 @@ def build_budget_exhaustion_blocks(
     current_tokens: int,
     budget_limit: int,
     turn_count: int,
-    user_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Constructs Slack Block Kit UI for Quota Warden budget exhaustion alert.
     Allows engineers to grant +50k tokens or abort the task safely.
@@ -17,7 +17,7 @@ def build_budget_exhaustion_blocks(
     tag_prefix = f"⚠️ <@{target_user}> *Action Required:* " if target_user else "🛑 "
 
     percent_used = int((current_tokens / budget_limit) * 100) if budget_limit else 100
-    blocks: List[Dict[str, Any]] = [
+    blocks: list[dict[str, Any]] = [
         {
             "type": "header",
             "text": {
@@ -105,13 +105,13 @@ def build_policy_gate_blocks(
     task_id: str,
     command: str,
     reason: str,
-    user_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Constructs Block Kit UI for PolicyEngine ask_user() gates (e.g. git push).
     """
     target_user = user_id or os.getenv("SLACK_USER_ID")
-    blocks: List[Dict[str, Any]] = [
+    blocks: list[dict[str, Any]] = [
         {
             "type": "header",
             "text": {
@@ -181,13 +181,13 @@ def build_draft_pr_blocks(
     branch_name: str,
     diff_stats: str,
     test_summary: str,
-    user_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Constructs Block Kit UI for end-of-task review and Draft PR dispatch.
     """
     target_user = user_id or os.getenv("SLACK_USER_ID")
-    blocks: List[Dict[str, Any]] = [
+    blocks: list[dict[str, Any]] = [
         {
             "type": "header",
             "text": {

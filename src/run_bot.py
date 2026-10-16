@@ -9,7 +9,6 @@ Runs the live bot listener in the background, responding to:
 import asyncio
 import logging
 import os
-import signal
 import sys
 from pathlib import Path
 
@@ -17,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
+
 from src.slack.bot import SlackWarRoomBot
 from src.storage.db import init_db
 

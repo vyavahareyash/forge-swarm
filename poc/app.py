@@ -9,58 +9,46 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 # Ensure repo root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 import streamlit as st
+
 from src.agents.agy_runner import (
-    AgyAuthenticationError,
-    AgyNotInstalledError,
     AgyRunner,
     AgyTurnResult,
     find_agy_binary,
 )
 from src.agents.hooks import BudgetGuard
+from src.agents.orchestrator import Orchestrator
 from src.agents.policies import (
     Decision,
     PolicyEngine,
-    PolicyRule,
     create_agent_policies,
     is_dangerous_command,
     is_git_push,
     is_outside_workspace,
 )
+from src.pipeline import E2EPipeline
+from src.slack.personas import get_persona
 from src.storage.db import (
     create_task,
     extend_task_budget,
     get_connection,
     get_slack_events,
     get_task,
-    get_task_by_thread_ts,
-    get_turn_history,
     init_db,
     record_slack_event,
     record_turn_tokens,
     update_task_status,
-    update_task_thread_ts,
 )
-from src.agents.orchestrator import Orchestrator
+from src.triggers.github_poller import GitHubIssue, GitHubPoller
 from src.worktree import WorktreeManager
 from tests.fixtures.sample_repo import ensure_sample_repo
-from src.slack.personas import AGENT_PERSONAS, get_persona, post_agent_message
-from src.slack.approvals import (
-    build_budget_exhaustion_blocks,
-    build_policy_gate_blocks,
-    build_draft_pr_blocks,
-)
-from src.slack.bot import SlackWarRoomBot
-from src.triggers.github_poller import GitHubIssue, GitHubPoller
-from src.pipeline import E2EPipeline
 
 # Page configuration
 st.set_page_config(
@@ -166,7 +154,7 @@ with st.sidebar:
     else:
         st.warning("⚠️ Host `agy` CLI not detected")
 
-    st.write(f"📁 **State DB**: `storage/state.db`")
+    st.write("📁 **State DB**: `storage/state.db`")
 
     st.divider()
     st.subheader("Quick Actions")
@@ -1064,7 +1052,7 @@ with tab_pipeline:
         )
     with p_col3:
         st.markdown(
-            f"""
+            """
             <div class="metric-card">
                 <small style="opacity: 0.7;">Task Budget Ceiling</small>
                 <div style="font-weight: 700; font-size: 1.1rem; color: #F59E0B;">150,000 tokens</div>

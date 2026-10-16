@@ -1,9 +1,10 @@
 """Safety policies and permission gates for autonomous agents."""
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 # Attempt to import Antigravity SDK policy helpers if present
 try:
@@ -24,11 +25,11 @@ class Decision(str, Enum):
 class PolicyRule:
     tool_pattern: str
     decision: Decision
-    predicate: Optional[Callable[[Dict[str, Any]], bool]] = None
-    reason: Optional[str] = None
-    name: Optional[str] = None
+    predicate: Callable[[dict[str, Any]], bool] | None = None
+    reason: str | None = None
+    name: str | None = None
 
-    def matches(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+    def matches(self, tool_name: str, arguments: dict[str, Any]) -> bool:
         if self.tool_pattern != "*" and self.tool_pattern != tool_name:
             if self.tool_pattern.endswith("*") and tool_name.startswith(self.tool_pattern[:-1]):
                 pass
@@ -53,7 +54,7 @@ DANGEROUS_COMMAND_PATTERNS = [
 ]
 
 
-def is_dangerous_command(args: Dict[str, Any]) -> bool:
+def is_dangerous_command(args: dict[str, Any]) -> bool:
     """Predicate checking if CommandLine contains dangerous or mutating commands."""
     cmd = args.get("CommandLine", "") or args.get("command", "")
     for pattern in DANGEROUS_COMMAND_PATTERNS:
@@ -62,17 +63,17 @@ def is_dangerous_command(args: Dict[str, Any]) -> bool:
     return False
 
 
-def is_git_push(args: Dict[str, Any]) -> bool:
+def is_git_push(args: dict[str, Any]) -> bool:
     """Check specifically for git push."""
     cmd = args.get("CommandLine", "") or args.get("command", "")
     return bool(re.search(r"\bgit\s+push\b", cmd, re.IGNORECASE))
 
 
-def is_outside_workspace(workspace_root: str) -> Callable[[Dict[str, Any]], bool]:
+def is_outside_workspace(workspace_root: str) -> Callable[[dict[str, Any]], bool]:
     """Predicate checking if file path targets outside the designated workspace."""
     abs_root = os.path.abspath(workspace_root)
 
-    def _check(args: Dict[str, Any]) -> bool:
+    def _check(args: dict[str, Any]) -> bool:
         path = args.get("AbsolutePath") or args.get("TargetFile") or args.get("path")
         if not path:
             return False
@@ -83,7 +84,7 @@ def is_outside_workspace(workspace_root: str) -> Callable[[Dict[str, Any]], bool
     return _check
 
 
-def _flatten_rules(rules: List[Any]) -> List[Any]:
+def _flatten_rules(rules: list[Any]) -> list[Any]:
     flat = []
     for r in rules:
         if isinstance(r, list):
@@ -96,10 +97,10 @@ def _flatten_rules(rules: List[Any]) -> List[Any]:
 class PolicyEngine:
     """Evaluates tool invocation requests against prioritized policy rules."""
 
-    def __init__(self, rules: Optional[List[Any]] = None):
-        self.rules: List[Any] = _flatten_rules(rules or [])
+    def __init__(self, rules: list[Any] | None = None):
+        self.rules: list[Any] = _flatten_rules(rules or [])
 
-    def evaluate(self, tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> Decision:
+    def evaluate(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Decision:
         args = arguments or {}
         for rule in self.rules:
             # Native PolicyRule
@@ -138,9 +139,9 @@ class PolicyEngine:
 
 
 def create_agent_policies(
-    workspace_path: Optional[str] = None,
+    workspace_path: str | None = None,
     allow_git_push_interactive: bool = True,
-) -> List[Any]:
+) -> list[Any]:
     """
     Build declarative policies for Antigravity LocalAgentConfig.
     If SDK is available, returns SDK policy objects; otherwise returns PolicyRules.

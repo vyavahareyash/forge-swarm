@@ -1,9 +1,11 @@
 """Unit tests for GitHubPoller and issue lifecycle."""
 import json
 import subprocess
+
 import pytest
-from src.triggers.github_poller import GitHubIssue, GitHubPoller, GitHubPollerError
+
 from src.storage.db import create_task, init_db, update_task_status
+from src.triggers.github_poller import GitHubIssue, GitHubPoller, GitHubPollerError
 
 
 def test_github_issue_schema():

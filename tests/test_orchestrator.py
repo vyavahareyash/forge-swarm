@@ -1,11 +1,11 @@
 """
 Unit & Integration tests for Orchestrator multi-agent self-correction swarm loop.
 """
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from src.agents.orchestrator import CoderSubAgent, Orchestrator, QASubAgent
-from src.schemas import ImplementationPlan, QATestReport
 from src.worktree import WorktreeManager
 from tests.fixtures.sample_repo import ensure_sample_repo
 

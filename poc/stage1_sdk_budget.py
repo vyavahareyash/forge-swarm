@@ -10,8 +10,7 @@ Verifies:
 import asyncio
 import os
 import sys
-
-from typing import Any, Dict
+from typing import Any
 
 # Ensure repository root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,7 +20,6 @@ from src.agents.policies import Decision, PolicyEngine, create_agent_policies
 from src.storage.db import (
     create_task,
     get_task,
-    get_turn_history,
     init_db,
 )
 
@@ -128,7 +126,7 @@ async def run_stage1_poc(mode: str = "standalone") -> int:
     # 5. Execute turns with BudgetGuard
     print("\n⚡ Initializing BudgetGuard and executing task turns...")
 
-    def on_exceeded(guard: BudgetGuard, record: Dict[str, Any]):
+    def on_exceeded(guard: BudgetGuard, record: dict[str, Any]):
         reason = f"Budget exceeded: {record['cumulative_tokens']:,}/{record['budget_limit']:,} tokens"
         print(f"🛑 [BudgetGuard Hook Alert] {reason} -> Halted with PAUSED_BUDGET")
 
@@ -150,7 +148,7 @@ async def run_stage1_poc(mode: str = "standalone") -> int:
         print(f"\n--- {turn_name} ---")
 
         if mode == "agy" and agy_runner:
-            print(f"   [agy Headless] Executing via `agy -p` (subscription OAuth)...")
+            print("   [agy Headless] Executing via `agy -p` (subscription OAuth)...")
             try:
                 turn_res = await agy_runner.execute_turn(prompt)
                 usage_data = turn_res.usage_dict
@@ -161,7 +159,7 @@ async def run_stage1_poc(mode: str = "standalone") -> int:
                 return 1
 
         elif mode == "live" and client:
-            print(f"   [Live Inference] Dispatching prompt to Gemini model...")
+            print("   [Live Inference] Dispatching prompt to Gemini model...")
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
