@@ -86,6 +86,7 @@ flowchart TD
 
 - [CONTEXT.md](CONTEXT.md): System purpose, inviolable constraints, and finalized requirements.
 - [GLOSSARY.md](GLOSSARY.md): Ubiquitous domain terminology (Task, War-Room, Workspace, Safety Gate).
+- [docs/specs/production-architecture-plan.md](docs/specs/production-architecture-plan.md): Production multi-agent architecture, Indian persona roster, and workflow spec.
 - [docs/specs/agent-team-implementation-plan.md](docs/specs/agent-team-implementation-plan.md): Architectural roadmap and specification.
 - [docs/specs/poc-implementation-plan.md](docs/specs/poc-implementation-plan.md): 4-stage incremental verification plan.
 - [docs/adr/](docs/adr/):
