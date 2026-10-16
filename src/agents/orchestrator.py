@@ -23,10 +23,12 @@ from src.agents.agy_runner import AgyRunner, AgyTurnResult, find_agy_binary
 from src.agents.hooks import BudgetGuard
 from src.schemas import (
     ImplementationPlan,
+    LivingSpec,
     QATestReport,
     SubTask,
     SwarmExecutionResult,
     SwarmTurnLog,
+    TurnRecord,
 )
 from src.storage.db import (
     create_task,
@@ -35,6 +37,8 @@ from src.storage.db import (
     record_turn_tokens,
     update_task_status,
 )
+from src.storage.session_manager import SessionManager
+
 from src.worktree import WorktreeManager
 
 
@@ -203,6 +207,8 @@ class Orchestrator:
         self.sessions_dir = Path(sessions_dir or os.path.abspath("storage/sessions"))
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         init_db(self.db_path)
+        self.session_manager = SessionManager(db_path=self.db_path, sessions_dir=str(self.sessions_dir))
+
 
     async def plan_task(
         self,
@@ -275,6 +281,21 @@ class Orchestrator:
             db_path=self.db_path,
         )
 
+        living_spec = LivingSpec(
+            task_id=task_id,
+            version=1,
+            requirements=[issue_desc],
+            architecture_decisions=[],
+            review_state={"retries_used": 0, "status": "RUNNING"},
+            open_questions=[],
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self.session_manager.init_session(
+            task_id=task_id,
+            issue_id=issue_id,
+            living_spec=living_spec,
+        )
+
         trajectory: List[SwarmTurnLog] = []
         total_tokens = 0
         branch_name = f"fix/{issue_id}"
@@ -301,6 +322,24 @@ class Orchestrator:
                 details=details,
             )
             trajectory.append(turn_log)
+
+            turn_record = TurnRecord(
+                turn_index=turn_counter,
+                persona=persona,
+                role=role,
+                action=action,
+                thinking_level=thinking_level,  # type: ignore[arg-type]
+                prompt=details.get("prompt"),
+                thoughts=details.get("thoughts"),
+                tool_calls=details.get("tool_calls", []),
+                tool_results=details.get("tool_results", []),
+                response_text=details.get("summary") or details.get("response"),
+                tokens_spent=tokens,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                details=details,
+            )
+            self.session_manager.append_turn(task_id, turn_record)
+
             prompt_t = int(tokens * 0.4)
             cand_t = int(tokens * 0.4)
             thought_t = tokens - prompt_t - cand_t
@@ -329,6 +368,9 @@ class Orchestrator:
         try:
             # 2. Atlas Planning Turn
             plan, plan_tokens = await self.plan_task(issue_id, issue_desc, mode=mode, runner=runner)
+            living_spec.architecture_decisions = [plan.summary] + [s.title for s in plan.subtasks]
+            self.session_manager.update_living_spec(task_id, living_spec)
+
             log_turn(
                 persona="Atlas (Lead Architect)",
                 role="orchestrator",
@@ -337,6 +379,7 @@ class Orchestrator:
                 tokens=plan_tokens,
                 details={"plan_summary": plan.summary, "subtasks_count": len(plan.subtasks)},
             )
+
 
             # 3. Sentinel Baseline QA Verification Turn
             qa_agent = QASubAgent(worktree_path)
@@ -405,6 +448,27 @@ class Orchestrator:
                 status = "FAILED"
                 update_task_status(task_id, "FAILED", db_path=self.db_path)
 
+            living_spec.review_state = {
+                "status": status,
+                "retries_used": retries,
+                "passed": final_report.passed,
+                "total_tests": final_report.total_tests,
+                "failed_tests": final_report.failed_tests,
+            }
+            self.session_manager.update_living_spec(task_id, living_spec)
+
+            # Update final session trajectory status
+            final_session = self.session_manager.load_session(task_id)
+            if final_session:
+                final_session.status = status
+                final_session.retries_used = retries
+                final_session.plan = plan
+                final_session.updated_at = datetime.now(timezone.utc).isoformat()
+                self.session_manager._atomic_write_json(
+                    self.session_manager._get_session_path(task_id),
+                    final_session.model_dump(),
+                )
+
             result = SwarmExecutionResult(
                 task_id=task_id,
                 issue_id=issue_id,
@@ -417,11 +481,8 @@ class Orchestrator:
                 tokens_spent=total_tokens,
             )
 
-            # Save session trajectory to disk
-            session_file = self.sessions_dir / f"{task_id}.json"
-            session_file.write_text(result.model_dump_json(indent=2))
-
             return result
+
 
         finally:
             if cleanup_worktree:
