@@ -1,8 +1,8 @@
-# Autonomous Multi-Agent Software Engineering Team (`google-antigravity` SDK)
+# Autonomous Multi-Agent Software Engineering Team (Antigravity CLI Headless Runtime)
 ## Project Research, Architecture Specification & Handover Build Plan
 
 > **Document Purpose:** This document serves as the complete architectural specification, technical research summary, and step-by-step build plan to be handed directly to a **Google Antigravity Agent** (via Antigravity IDE / CLI) to bootstrap and implement an issue-triggered, budget-governed, Slack-integrated multi-agent software engineering system.
-> **Core Constraint:** **ZERO paid per-token Gemini/Vertex API keys.** All cloud inference must execute via the local `google-antigravity` SDK runtime binary inheriting the host machine's active Google AI / Antigravity subscription OAuth session (with optional hybrid local offload via LiteRT / Ollama).
+> **Core Constraint:** **ZERO paid per-token Gemini/Vertex API keys.** All cloud inference must execute via the host machine's Antigravity CLI in Headless Mode (`agy -p "<prompt>" --output-format json`) inheriting the active Google AI / Antigravity subscription OAuth session (with `google-antigravity` as optional SDK abstraction).
 
 ---
 
@@ -19,36 +19,37 @@ Instead of running an expensive 24/7 polling loop that exhausts subscription quo
 
 ---
 
-## 2. Core Technical Research & `google-antigravity` SDK Capabilities
+## 2. Core Technical Architecture & Antigravity CLI Headless Runtime
 
-### 2.1 Zero-API-Key Authentication (Subscription Inheritance)
-- Installing `pip install google-antigravity` downloads the platform-specific compiled **Antigravity Agent Runtime binary**.
-- Instantiating `Agent(config=LocalAgentConfig(...))` connects to this local runtime, automatically inheriting the active OAuth session from the host machine's Antigravity Desktop IDE or CLI login.
-- **Result:** No `GEMINI_API_KEY` or Google Cloud billing account is required. Usage draws directly from the user's Google AI Pro / Ultra 5x / Ultra 20x subscription windows (5-hour rolling window + weekly ceiling).
+### 2.1 Zero-API-Key Authentication via CLI Headless Mode (`agy -p`)
+- **CLI Headless Invocation**: The daemon executes cloud model inference through the host machine's Antigravity CLI in headless print mode (`agy -p "<prompt>" --output-format json/stream-json`) via `src/agents/agy_runner.py` (`AgyRunner`).
+- **Subscription Inheritance**: The `agy` CLI automatically inherits the active Google AI Pro / Ultra subscription OAuth session authenticated on the developer's workstation without requiring a `GEMINI_API_KEY` or Google Cloud billing credentials.
+- **Robust Subprocess Decoupling**: Driving the CLI binary via subprocess eliminates dependence on undocumented or unreleased private Python SDK packages, providing stable execution across macOS and Linux hosts.
 
 ### 2.2 Quota Optimization & Task Budgeting Mechanics
-To prevent a single complex issue or infinite test-fix loop from draining the 5-hour subscription quota, three SDK controls are combined:
-1. **Dynamic Thinking Depth (`GenerationConfig`):**
-   - **Orchestrator:** `thinking_level="HIGH"` (invests tokens upfront in architectural planning and root-cause analysis).
-   - **Coder Sub-Agent:** `thinking_level="MEDIUM"` or `"LOW"` (fast code generation and targeted diffs).
-   - **QA Sub-Agent:** `thinking_level="MINIMAL"` (deterministic test execution and traceback extraction).
-2. **Real-Time Token & Turn Metering (`usage_metadata`):**
-   - Every turn response exposes `response.usage_metadata` (`prompt_token_count`, `candidates_token_count`, `cached_content_token_count`, `thoughts_token_count`, `total_token_count`).
-   - A `@post_turn` Decide Hook accumulates token usage per `issue_id` in SQLite. When `spent_tokens >= task_budget_tokens` (default: `150,000` tokens or `15` turns), execution halts and requests human intervention in Slack.
-3. **Optional Hybrid Local Offload (`LocalOpenAIAgentConfig` / LiteRT):**
-   - If the host machine has sufficient VRAM/Unified Memory, sub-agents can optionally route routine coding/testing turns to local `gemma-4` via Ollama/vLLM/LiteRT while keeping the Orchestrator on the cloud subscription.
+To prevent a single complex issue or infinite test-fix loop from draining the rolling 5-hour subscription quota, three controls are combined:
+1. **Dynamic Thinking Depth & Prompt Specialization:**
+   - **Orchestrator (Atlas):** High thinking instructions (invests tokens upfront in architectural planning and root-cause analysis).
+   - **Coder Sub-Agent (Forge):** Medium thinking instructions (fast code generation and targeted diffs).
+   - **QA Sub-Agent (Sentinel):** Minimal thinking instructions (deterministic test execution and traceback extraction).
+2. **Real-Time Token Telemetry Parsing (`AgyRunner`):**
+   - Headless `agy -p --output-format json` emits structured telemetry containing `prompt_token_count`, `candidates_token_count`, `thoughts_token_count`, and `total_token_count`.
+   - `AgyRunner` parses this payload into an `AgyTurnResult` dataclass and feeds it into the `@post_turn` `BudgetGuard`.
+3. **Deterministic Token & Turn Halting (`BudgetGuard`):**
+   - The `@post_turn` guard accumulates token spend per `task_id` in SQLite (`storage/state.db`).
+   - When `current_tokens >= budget_limit` (default: `150,000` tokens or `15` turns), execution halts with status `PAUSED_BUDGET` and triggers human top-up approval in Slack.
 
 ### 2.3 Built-In Tooling & Sub-Agent Delegation
-- `LocalAgentConfig` ships with Antigravity's native toolset out of the box: `view_file`, `edit_file`, `run_command`, directory search, headless browser automation, and **native sub-agent spawning**.
 - Sub-agents are defined cleanly via modular `SKILL.md` manifests (`./skills/coder/SKILL.md`, `./skills/qa/SKILL.md`) and scoped workspace paths.
+- Each sub-agent turn runs with scoped permissions inside the target Git worktree (`./workspaces/issue-<id>`).
 
-### 2.4 Declarative Policy & Lifecycle Hooks
-- **`google.antigravity.hooks.policy`:** Enforces hard boundaries before any tool executes:
-  - `allow("view_file")`, `allow("edit_file")` (restricted to `./workspaces/issue-<id>/*`).
-  - `deny("run_command", pattern=r"(rm\s+-rf|git\s+push\s+--force|sudo)")`.
-  - `ask_user("run_command", pattern=r"(git\s+push|gh\s+pr\s+create|pip\s+install)", handler=slack_approval_handler)`.
-- **Lifecycle Hooks (`@pre_tool_call`, `@post_tool_call`, `@post_turn`):**
-  - Intercept tool executions to post real-time status updates to the Slack thread and check token budgets.
+### 2.4 Declarative Safety Policies & Lifecycle Hooks
+- **`src/agents/policies.py` (`PolicyEngine`):** Enforces hard pre-execution boundaries before any tool runs:
+  - `ALLOW`: Safe workspace file inspections and local test runs (`pytest`, `git status`).
+  - `DENY`: Destructive shell commands (`rm -rf`, `git reset --hard`, `chmod 777`) and path traversal outside the worktree.
+  - `ASK_USER`: Remote operations (`git push`, `gh pr create`) gated by human Slack Block Kit approval.
+- **Lifecycle Hooks (`src/agents/hooks.py`):**
+  - Intercept turn execution to update SQLite state, verify token budget ceilings, and raise pause gates.
 
 ---
 
@@ -76,6 +77,7 @@ antigravity-agent-team/
 │   │   └── approvals.py            # Block Kit interactive buttons for ask_user() policy gates & budget top-ups
 │   ├── agents/
 │   │   ├── __init__.py
+│   │   ├── agy_runner.py           # Subprocess runner driving agy -p headless inference and token telemetry
 │   │   ├── orchestrator.py         # Lead Orchestrator Agent setup, session binding, and task loop
 │   │   ├── hooks.py                # @post_tool_call (Slack telemetry) & @post_turn (Token budget enforcement)
 │   │   └── policies.py             # Declarative safety rules (allow/deny/ask_user)
@@ -211,16 +213,17 @@ Before running Stage 3 and Stage 4, the user will supply:
 > **Instructions for the Antigravity Agent executing this file:**
 > Execute the build in the 4 sequential stages below. **Do not skip ahead.** Complete all verification tests for a stage before moving to the next.
 
-### Stage 1: Project Scaffolding, Core SDK Harness & Budget Hook PoC
-- **Objective:** Verify that `google-antigravity` initializes via subscription OAuth (no API key), executes a basic tool call, tracks `usage_metadata`, and halts cleanly when a mock token budget is exceeded.
+### Stage 1: Project Scaffolding, Core CLI Harness & Budget Hook PoC ✅ [COMPLETED]
+- **Objective:** Verify that `agy` CLI Headless Mode (`agy -p`) initializes via host subscription OAuth (zero API key), executes live model inference, parses real `usage_metadata` token telemetry, enforces declarative safety policies, and deterministically halts when task token budget limit is reached.
 - **Tasks:**
-  1. Initialize `pyproject.toml`, virtual environment, and directory structure (`src/`, `skills/`, `storage/`, `tests/`).
-  2. Implement `src/config.py` and `src/db.py` (SQLite state and budget ledger).
-  3. Implement `src/agents/policies.py` (blocking destructive commands like `rm -rf` and `git push --force`) and `src/agents/hooks.py` (the `@post_turn` token budget counter).
-  4. Write a CLI verification script (`src/stage1_poc.py`) that spawns an `Agent(LocalAgentConfig(...))`, runs a dummy file inspection task with a low token cap (e.g., `5,000` tokens), and verifies that the budget hook intercepts execution and logs token metrics accurately.
-- **Acceptance Criteria:** `pytest tests/test_budget_hooks.py` passes; `python -m src.stage1_poc` runs without any `GEMINI_API_KEY` environment variable set.
+  1. Initialize `pyproject.toml`, virtual environment, and directory structure (`src/`, `skills/`, `storage/`, `tests/`, `poc/`).
+  2. Implement `src/storage/db.py` (SQLite state store and token turn ledger).
+  3. Implement `src/agents/agy_runner.py` (`AgyRunner` subprocess driver with token telemetry extraction).
+  4. Implement `src/agents/policies.py` (blocking destructive commands like `rm -rf` and `git push --force`) and `src/agents/hooks.py` (`BudgetGuard` `@post_turn` token counter and pause gate).
+  5. Author CLI verification script (`poc/stage1_sdk_budget.py`) and Streamlit verification hub ([`poc/app.py`](file:///Users/yash/Documents/Repos/npc-inc/poc/app.py)) with 5 dedicated interactive testbenches.
+- **Acceptance Criteria:** `pytest tests/` passes 100% (9/9 tests); live inference executes via `agy -p` without any `GEMINI_API_KEY` set; task halts with `Status: PAUSED_BUDGET` upon reaching ceiling.
 
-### Stage 2: Git Worktree Isolation & Multi-Agent Split (Orchestrator, Coder, QA)
+### Stage 2: Git Worktree Isolation & Multi-Agent Split (Orchestrator, Coder, QA) ✅ [COMPLETED]
 - **Objective:** Enable the Orchestrator to provision an isolated git worktree per issue and coordinate the Coder and QA sub-agents using structured outputs (`ImplementationPlan` and `QATestReport`).
 - **Tasks:**
   1. Implement `src/worktree.py` to create (`git worktree add -b fix/issue-<id> ./workspaces/issue-<id>`) and clean up isolated workspaces.
@@ -299,4 +302,4 @@ settings:
 
 Once you drop this file (`ANTIGRAVITY_AGENT_TEAM_PLAN.md`) into your new project directory, open your Antigravity IDE or CLI and run this prompt:
 
-> *"Read `@ANTIGRAVITY_AGENT_TEAM_PLAN.md` in full. We are building this issue-triggered, budget-governed multi-agent software engineering system using the `google-antigravity` SDK on my active subscription (no API keys). Start by executing **Stage 1: Project Scaffolding, Core SDK Harness & Budget Hook PoC**. Create the directory structure, `pyproject.toml`, SQLite budget state tracker, declarative safety policies, and the Stage 1 verification script, then run the tests to verify everything works."*
+> *"Read `@ANTIGRAVITY_AGENT_TEAM_PLAN.md` in full. We are building this issue-triggered, budget-governed multi-agent software engineering system using the Antigravity CLI in headless mode (`agy -p`) on my active subscription (no API keys). Start by executing **Stage 1: Project Scaffolding, Core CLI Harness & Budget Hook PoC**. Create the directory structure, `pyproject.toml`, SQLite budget state tracker, declarative safety policies, and the Stage 1 verification script, then run the tests to verify everything works."*

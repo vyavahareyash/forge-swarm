@@ -1,0 +1,237 @@
+"""SQLite database state store for tasks and token burn history."""
+import os
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent.parent / "storage" / "state.db")
+
+
+def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
+    if isinstance(db_path, sqlite3.Connection):
+        return db_path
+    target_path = db_path or DEFAULT_DB_PATH
+    if not target_path.startswith("file:"):
+        os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+    conn = sqlite3.connect(target_path, uri=target_path.startswith("file:"))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+
+def init_db(db_path: Optional[str] = None) -> None:
+    """Initialize SQLite schema for tasks and token turns."""
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id TEXT PRIMARY KEY,
+                    issue_id TEXT,
+                    slack_thread_ts TEXT,
+                    conversation_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'RUNNING',
+                    budget_limit INTEGER NOT NULL DEFAULT 150000,
+                    turn_limit INTEGER NOT NULL DEFAULT 15,
+                    current_tokens INTEGER NOT NULL DEFAULT 0,
+                    turn_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS token_turns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL,
+                    turn_index INTEGER NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    candidates_tokens INTEGER NOT NULL DEFAULT 0,
+                    thoughts_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    cumulative_tokens INTEGER NOT NULL DEFAULT 0,
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE
+                );
+                """
+            )
+    finally:
+        conn.close()
+
+
+def create_task(
+    task_id: str,
+    issue_id: Optional[str] = None,
+    slack_thread_ts: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    budget_limit: int = 150_000,
+    turn_limit: int = 15,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create a new task record in SQLite."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute("DELETE FROM token_turns WHERE task_id = ?;", (task_id,))
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO tasks (
+                    task_id, issue_id, slack_thread_ts, conversation_id,
+                    status, budget_limit, turn_limit, current_tokens, turn_count,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, 0, 0, ?, ?);
+                """,
+                (
+                    task_id,
+                    issue_id,
+                    slack_thread_ts,
+                    conversation_id,
+                    budget_limit,
+                    turn_limit,
+                    now,
+                    now,
+                ),
+            )
+        return get_task(task_id, db_path=db_path)  # type: ignore[return-value]
+    finally:
+        conn.close()
+
+
+def get_task(task_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve task metadata by task_id."""
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.execute("SELECT * FROM tasks WHERE task_id = ?;", (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def update_task_status(
+    task_id: str,
+    status: str,
+    db_path: Optional[str] = None,
+) -> None:
+    """Update task status (e.g. RUNNING, PAUSED_BUDGET, COMPLETED, FAILED)."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?;",
+                (status, now, task_id),
+            )
+    finally:
+        conn.close()
+
+
+def record_turn_tokens(
+    task_id: str,
+    turn_index: int,
+    prompt_tokens: int,
+    candidates_tokens: int,
+    thoughts_tokens: int,
+    total_tokens: int,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Record turn tokens and update cumulative spend on task atomically."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            cursor = conn.execute(
+                "SELECT current_tokens, turn_count, budget_limit FROM tasks WHERE task_id = ?;",
+                (task_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError(f"Task {task_id} not found")
+
+            new_cumulative = row["current_tokens"] + total_tokens
+            new_turn_count = max(row["turn_count"], turn_index)
+
+            conn.execute(
+                """
+                INSERT INTO token_turns (
+                    task_id, turn_index, prompt_tokens, candidates_tokens,
+                    thoughts_tokens, total_tokens, cumulative_tokens, timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    task_id,
+                    turn_index,
+                    prompt_tokens,
+                    candidates_tokens,
+                    thoughts_tokens,
+                    total_tokens,
+                    new_cumulative,
+                    now,
+                ),
+            )
+
+            conn.execute(
+                """
+                UPDATE tasks
+                SET current_tokens = ?, turn_count = ?, updated_at = ?
+                WHERE task_id = ?;
+                """,
+                (new_cumulative, new_turn_count, now, task_id),
+            )
+
+        return {
+            "task_id": task_id,
+            "turn_index": turn_index,
+            "turn_tokens": total_tokens,
+            "cumulative_tokens": new_cumulative,
+            "budget_limit": row["budget_limit"],
+            "budget_exceeded": new_cumulative >= row["budget_limit"],
+        }
+    finally:
+        conn.close()
+
+
+def extend_task_budget(
+    task_id: str,
+    additional_tokens: int,
+    additional_turns: int = 5,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Extend budget and turns for a paused task."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET budget_limit = budget_limit + ?,
+                    turn_limit = turn_limit + ?,
+                    status = 'RUNNING',
+                    updated_at = ?
+                WHERE task_id = ?;
+                """,
+                (additional_tokens, additional_turns, now, task_id),
+            )
+        return get_task(task_id, db_path=db_path)  # type: ignore[return-value]
+    finally:
+        conn.close()
+
+
+def get_turn_history(task_id: str, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieve turn token log history for a task."""
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM token_turns WHERE task_id = ? ORDER BY turn_index ASC;",
+            (task_id,),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+    finally:
+        conn.close()

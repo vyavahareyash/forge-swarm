@@ -35,6 +35,9 @@ storage/sessions/*
 workspaces/*
 !workspaces/.gitkeep
 
+# Fixture repos
+tests/fixtures/sample_repo/
+
 # Environment secrets
 .env
 .env.local

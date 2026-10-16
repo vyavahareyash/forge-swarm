@@ -38,42 +38,53 @@ flowchart TD
 
 ---
 
-## Stage 1: Core SDK Harness & Budget Hook PoC
+## Stage 1: Core SDK Harness & Budget Hook PoC ✅ [COMPLETED]
 
 ### Objective
-Verify that `google-antigravity` initializes without `GEMINI_API_KEY` (inheriting the active host Antigravity Desktop OAuth session), executes a basic tool call, tracks `response.usage_metadata`, and halts cleanly via `@post_turn` when a task budget limit is exceeded.
+Verify live agent execution (non-simulated LLM inference calls) via Antigravity CLI Headless Mode (`agy -p`) or `google-antigravity` with token tracking, SQLite persistence, declarative safety policies, interactive frontend verification, and deterministic halting via `@post_turn` when task budget limit is reached.
+
+### Live & Interactive Requirements
+- **Subscription Headless Inference**: PoC executes model generation calls through `agy` CLI Headless Mode (`agy -p "<prompt>" --output-format json/stream-json`), inheriting the host machine's active Google AI subscription OAuth session without requiring a `GEMINI_API_KEY`.
+- **Token Telemetry Extraction**: Real prompt, thoughts, and candidate tokens are parsed from `agy` CLI JSON/NDJSON output and piped into `BudgetGuard` and SQLite.
+- **Interactive Streamlit Walkthrough**: Every PoC ships an interactive Streamlit UI ([`poc/app.py`](file:///Users/yash/Documents/Repos/npc-inc/poc/app.py)) allowing the tester to trigger turns, run live inference via `agy -p`, observe real-time token burn meters, test policy evaluation on custom commands, and verify acceptance criteria visually.
 
 ### Deliverables
-1. `pyproject.toml` with pinned dependencies (`google-antigravity`, `pydantic`, `pytest`, `pytest-asyncio`).
-2. `src/agents/policies.py`: Declarative safety boundaries (`allow`, `deny`, `ask_user`).
-3. `src/agents/hooks.py`: `@post_turn` token metering extracting `total_token_count` into a local SQLite state store.
-4. `poc/stage1_sdk_budget.py`: Executable verification script running a synthetic task with a 5,000 token ceiling to demonstrate deterministic early halt.
-5. `tests/test_budget_hooks.py`: Unit tests mocking SDK responses to verify token accumulation and `asyncio.Event` pause mechanics.
+1. `pyproject.toml` with pinned dependencies (`google-antigravity`, `pydantic`, `streamlit`, `pytest`, `pytest-asyncio`).
+2. `src/agents/agy_runner.py`: Subprocess runner driving `agy -p` in headless mode, streaming NDJSON/JSON outputs, and extracting real usage tokens.
+3. `src/agents/policies.py`: Declarative safety boundaries (`allow`, `deny`, `ask_user`).
+4. `src/agents/hooks.py`: `@post_turn` token metering extracting `total_token_count` into a local SQLite state store.
+5. `poc/stage1_sdk_budget.py`: Executable verification script running live model turns via `agy -p` with a tight token ceiling to demonstrate real-time metering and deterministic early halt.
+6. [`poc/app.py`](file:///Users/yash/Documents/Repos/npc-inc/poc/app.py): Interactive Streamlit walkthrough for visual testing and requirement verification (`streamlit run poc/app.py`).
+7. `tests/test_budget_hooks.py` & `tests/test_agy_runner.py`: Unit tests verifying token accumulation, policy engine decisions, `agy` output parsing, and `asyncio.Event` pause mechanics.
 
 ### Acceptance Criteria
-- [ ] `pytest tests/test_budget_hooks.py` passes.
-- [ ] `python -m poc.stage1_sdk_budget` executes with `GEMINI_API_KEY` unset, connects to local runtime, logs token consumption per turn, and halts with `Status: PAUSED_BUDGET`.
+- [x] `pytest tests/` passes 100% (9/9 tests).
+- [x] Live inference executes via `agy` CLI headless mode (`--agy`) inheriting host subscription OAuth, logging real token usage into `storage/state.db`.
+- [x] Task halts deterministically with `Status: PAUSED_BUDGET` upon reaching budget ceiling.
+- [x] Interactive Streamlit walkthrough ([`poc/app.py`](file:///Users/yash/Documents/Repos/npc-inc/poc/app.py)) allows user to step through turns, test policies, and verify requirements.
 
 ---
 
-## Stage 2: Git Worktree Isolation & Multi-Agent Swarm Loop
+## Stage 2: Git Worktree Isolation & Multi-Agent Swarm Loop ✅ [COMPLETED]
 
 ### Objective
 Verify that the host can provision and prune isolated Git worktrees (`./workspaces/issue-<id>`), coordinate sub-agents using structured Pydantic outputs (`ImplementationPlan`, `QATestReport`), and run a bounded 3-retry self-correction loop against a synthetic broken test.
 
 ### Deliverables
-1. `tests/fixtures/sample_repo/`: Minimal dedicated Git testbed repository containing a Python package and a deliberately failing unit test (`test_math.py`).
+1. `tests/fixtures/sample_repo/`: Minimal dedicated Git testbed repository containing a Python package and a deliberately failing unit test (`test_calculator.py`).
 2. `src/worktree.py`: `WorktreeManager` class wrapping `git worktree add -b fix/issue-<id>` and `git worktree remove --force`.
 3. `src/schemas.py`: Pydantic schemas for `SubTask`, `ImplementationPlan`, and `QATestReport`.
 4. `skills/coder/SKILL.md` & `skills/qa/SKILL.md`: Sub-agent system instructions and scoped file access limits.
 5. `src/agents/orchestrator.py`: Orchestrator logic delegating to Coder and QA with tiered thinking levels (`HIGH` for Orchestrator, `MEDIUM` for Coder, `MINIMAL` for QA).
 6. `poc/stage2_worktree_swarm.py`: Standalone script running an intentional bug fixture in an isolated worktree branched from `sample_repo`, observing QA failure, routing the traceback back to Coder, and verifying that the fix passes on attempt 2 or 3.
+7. `poc/app.py`: Interactive Streamlit Tab 4 testbench running the live Swarm loop, worktree isolation status, diff inspector, and step-by-step persona timeline.
+8. `tests/test_worktree.py`, `tests/test_schemas.py`, & `tests/test_orchestrator.py`: Unit and integration test suites.
 
 ### Acceptance Criteria
-- [ ] `tests/fixtures/sample_repo` serves as an isolated testbed; parent repo working tree remains untouched.
-- [ ] Orchestrator produces a valid `ImplementationPlan`.
-- [ ] QA catches the failing test on turn 1 and confirms green status after Coder fix.
-- [ ] Max retry count (3) is strictly enforced if tests remain failing.
+- [x] `tests/fixtures/sample_repo` serves as an isolated testbed; parent repo working tree remains untouched.
+- [x] Orchestrator produces a valid `ImplementationPlan`.
+- [x] QA catches the failing test on turn 1 and confirms green status after Coder fix.
+- [x] Max retry count (3) is strictly enforced if tests remain failing.
 
 ---
 

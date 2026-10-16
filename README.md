@@ -71,7 +71,7 @@ An event-driven, issue-triggered autonomous multi-agent engineering swarm powere
 ## 🚦 Roadmap & Implementation Phases
 
 - [x] **Repository Skeleton & Architecture Specs**
-- [ ] **Stage 1 PoC**: SDK OAuth inheritance & budget hook early halt
+- [x] **Stage 1 PoC**: SDK OAuth inheritance & budget hook early halt
 - [ ] **Stage 2 PoC**: Git worktree manager & 3-retry self-correction loop
 - [ ] **Stage 3 PoC**: Slack Socket Mode war-room & Block Kit approval buttons
 - [ ] **Stage 4 PoC**: End-to-end GitHub poller & Draft PR delivery
