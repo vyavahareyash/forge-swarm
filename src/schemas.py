@@ -38,6 +38,68 @@ class SwarmTurnLog(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolInvocation(BaseModel):
+    tool_name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    tool_call_id: Optional[str] = None
+
+
+class ToolResultRecord(BaseModel):
+    tool_name: str
+    output: str
+    status: str = "success"
+    tool_call_id: Optional[str] = None
+
+
+class LivingSpec(BaseModel):
+    task_id: str
+    version: int = 1
+    requirements: List[str] = Field(default_factory=list)
+    architecture_decisions: List[str] = Field(default_factory=list)
+    review_state: Dict[str, Any] = Field(default_factory=dict)
+    open_questions: List[str] = Field(default_factory=list)
+    updated_at: str
+
+
+class TurnRecord(BaseModel):
+    turn_index: int
+    persona: str
+    role: str
+    action: str
+    thinking_level: Literal["HIGH", "MEDIUM", "MINIMAL"] = "MEDIUM"
+    prompt: Optional[str] = None
+    thoughts: Optional[str] = None
+    tool_calls: List[ToolInvocation] = Field(default_factory=list)
+    tool_results: List[ToolResultRecord] = Field(default_factory=list)
+    response_text: Optional[str] = None
+    tokens_spent: int = 0
+    timestamp: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+    def to_turn_log(self) -> SwarmTurnLog:
+        return SwarmTurnLog(
+            persona=self.persona,
+            role=self.role,
+            action=self.action,
+            thinking_level=self.thinking_level,
+            tokens_spent=self.tokens_spent,
+            details=self.details or ({"summary": self.response_text} if self.response_text else {}),
+        )
+
+
+class SessionTrajectory(BaseModel):
+    task_id: str
+    issue_id: str
+    status: str = "RUNNING"
+    retries_used: int = 0
+    plan: Optional[ImplementationPlan] = None
+    living_spec: Optional[LivingSpec] = None
+    turns: List[TurnRecord] = Field(default_factory=list)
+    tokens_spent: int = 0
+    created_at: str
+    updated_at: str
+
+
 class SwarmExecutionResult(BaseModel):
     task_id: str
     issue_id: str
@@ -48,3 +110,4 @@ class SwarmExecutionResult(BaseModel):
     git_diff: str = ""
     trajectory: List[SwarmTurnLog] = Field(default_factory=list)
     tokens_spent: int = 0
+

@@ -47,3 +47,4 @@ tests/fixtures/sample_repo/
 .idea/
 .vscode/
 *.code-workspace
+.scratch/

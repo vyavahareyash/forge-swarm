@@ -9,7 +9,13 @@ from src.storage.db import (
     get_turn_history,
     record_slack_event,
     get_slack_events,
+    save_living_spec,
+    get_living_spec,
+    update_living_spec,
+    get_task_by_id_or_thread,
 )
+
+from src.storage.session_manager import RehydratedContext, SessionManager
 
 __all__ = [
     "init_db",
@@ -21,4 +27,12 @@ __all__ = [
     "get_turn_history",
     "record_slack_event",
     "get_slack_events",
+    "save_living_spec",
+    "get_living_spec",
+    "update_living_spec",
+    "get_task_by_id_or_thread",
+    "SessionManager",
+    "RehydratedContext",
 ]
+
+

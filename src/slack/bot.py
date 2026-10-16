@@ -29,6 +29,7 @@ from src.storage.db import (
     record_slack_event,
     update_task_status,
 )
+from src.storage.session_manager import RehydratedContext, SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class SlackWarRoomBot:
         self.app_token = app_token or os.getenv("SLACK_APP_TOKEN")
         self.default_channel = default_channel or os.getenv("SLACK_CHANNEL_ID")
         self.db_path = db_path
+        self.session_manager = SessionManager(db_path=self.db_path)
 
         self.active_gates: Dict[str, asyncio.Event] = {}
         self.gate_decisions: Dict[str, Dict[str, Any]] = {}
@@ -62,6 +64,7 @@ class SlackWarRoomBot:
 
         if self.bot_token and self.app_token:
             self._init_bolt_app()
+
 
     def _init_bolt_app(self) -> None:
         """Configures Bolt AsyncApp and registers interactive listeners."""
@@ -250,9 +253,13 @@ class SlackWarRoomBot:
             if not thread_ts or not text:
                 return
 
-            # Lookup task by thread_ts
-            task = get_task_by_thread_ts(thread_ts, db_path=self.db_path)
-            task_id = task["task_id"] if task else thread_ts
+            # Rehydrate task context from persistent storage
+            rehydrated = self.session_manager.rehydrate(thread_ts)
+            task_id = (
+                rehydrated.task.get("task_id")
+                if rehydrated and rehydrated.task
+                else (get_task_by_thread_ts(thread_ts, db_path=self.db_path) or {}).get("task_id", thread_ts)
+            )
 
             # Enqueue steering instruction
             if task_id not in self.steering_queues:
@@ -278,13 +285,19 @@ class SlackWarRoomBot:
                 logger.debug("Failed to add reaction to user message: %s", e)
 
             # Post acknowledgment from Atlas in the thread
+            spec_suffix = (
+                f" [Living Spec v{rehydrated.living_spec.version} active]"
+                if rehydrated and rehydrated.living_spec
+                else ""
+            )
             await post_agent_message(
                 client=client,
                 channel=event.get("channel"),
                 role="orchestrator",
-                text=f"🧭 *Atlas (Lead Architect):* Acknowledged steering guidance from <@{user_id}>:\n> *\"{text}\"*\nEnqueued as active direction for Forge and Sentinel.",
+                text=f"🧭 *Atlas (Lead Architect):* Acknowledged steering guidance from <@{user_id}>{spec_suffix}:\n> *\"{text}\"*\nEnqueued as active direction for Forge and Sentinel.",
                 thread_ts=thread_ts,
             )
+
 
         # 6. App Mention Event: Top-level mentions
         @self.app.event("app_mention")
@@ -342,7 +355,12 @@ class SlackWarRoomBot:
         except asyncio.TimeoutError:
             return None
 
+    def rehydrate_session(self, identifier: str) -> Optional[RehydratedContext]:
+        """Reconstitutes task and conversation context from task_id or slack_thread_ts."""
+        return self.session_manager.rehydrate(identifier)
+
     async def get_steering_instruction(self, task_id: str) -> Optional[str]:
+
         """Check for pending steering context from human thread replies."""
         queue = self.steering_queues.get(task_id)
         if queue and not queue.empty():

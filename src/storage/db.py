@@ -1,9 +1,11 @@
 """SQLite database state store for tasks and token burn history."""
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 
 DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent.parent / "storage" / "state.db")
 
@@ -70,8 +72,23 @@ def init_db(db_path: Optional[str] = None) -> None:
                 );
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS living_specs (
+                    task_id TEXT PRIMARY KEY,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    requirements TEXT NOT NULL,
+                    architecture_decisions TEXT NOT NULL,
+                    review_state TEXT NOT NULL,
+                    open_questions TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE
+                );
+                """
+            )
     finally:
         conn.close()
+
 
 
 def create_task(
@@ -318,4 +335,111 @@ def get_slack_events(task_id: Optional[str] = None, db_path: Optional[str] = Non
         return [dict(r) for r in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def save_living_spec(
+    spec: Any,
+    db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Insert or update a living spec in SQLite."""
+    from src.schemas import LivingSpec
+    if isinstance(spec, dict):
+        spec = LivingSpec(**spec)
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO living_specs (
+                    task_id, version, requirements, architecture_decisions,
+                    review_state, open_questions, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(task_id) DO UPDATE SET
+                    version = excluded.version,
+                    requirements = excluded.requirements,
+                    architecture_decisions = excluded.architecture_decisions,
+                    review_state = excluded.review_state,
+                    open_questions = excluded.open_questions,
+                    updated_at = excluded.updated_at;
+                """,
+                (
+                    spec.task_id,
+                    spec.version,
+                    json.dumps(spec.requirements),
+                    json.dumps(spec.architecture_decisions),
+                    json.dumps(spec.review_state),
+                    json.dumps(spec.open_questions),
+                    spec.updated_at or now,
+                ),
+            )
+        return spec.model_dump()
+    finally:
+        conn.close()
+
+
+def get_living_spec(task_id: str, db_path: Optional[str] = None) -> Optional[Any]:
+    """Retrieve living spec for a task from SQLite."""
+    from src.schemas import LivingSpec
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.execute("SELECT * FROM living_specs WHERE task_id = ?;", (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return LivingSpec(
+            task_id=row["task_id"],
+            version=row["version"],
+            requirements=json.loads(row["requirements"]),
+            architecture_decisions=json.loads(row["architecture_decisions"]),
+            review_state=json.loads(row["review_state"]),
+            open_questions=json.loads(row["open_questions"]),
+            updated_at=row["updated_at"],
+        )
+    finally:
+        conn.close()
+
+
+def update_living_spec(
+    task_id: str,
+    requirements: Optional[List[str]] = None,
+    architecture_decisions: Optional[List[str]] = None,
+    review_state: Optional[Dict[str, Any]] = None,
+    open_questions: Optional[List[str]] = None,
+    db_path: Optional[str] = None,
+) -> Optional[Any]:
+    """Update specific fields of an existing living spec, incrementing its version."""
+    from src.schemas import LivingSpec
+    current = get_living_spec(task_id, db_path=db_path)
+    if not current:
+        return None
+
+    now = datetime.now(timezone.utc).isoformat()
+    new_version = current.version + 1
+    new_reqs = requirements if requirements is not None else current.requirements
+    new_arch = architecture_decisions if architecture_decisions is not None else current.architecture_decisions
+    new_review = review_state if review_state is not None else current.review_state
+    new_questions = open_questions if open_questions is not None else current.open_questions
+
+    updated = LivingSpec(
+        task_id=task_id,
+        version=new_version,
+        requirements=new_reqs,
+        architecture_decisions=new_arch,
+        review_state=new_review,
+        open_questions=new_questions,
+        updated_at=now,
+    )
+    save_living_spec(updated, db_path=db_path)
+    return updated
+
+
+def get_task_by_id_or_thread(identifier: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve task record by task_id or fallback to slack_thread_ts."""
+    task = get_task(identifier, db_path=db_path)
+    if task:
+        return task
+    return get_task_by_thread_ts(identifier, db_path=db_path)
+
 
