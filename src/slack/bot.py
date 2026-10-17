@@ -11,22 +11,33 @@ Manages:
 import asyncio
 import logging
 import os
+import re
+from datetime import UTC, datetime
 from typing import Any
 
 from dotenv import load_dotenv
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
+from src.agents.mira import MiraIntakeAgent
+from src.schemas import LivingSpec
+from src.slack.approvals import build_spec_acceptance_blocks
 from src.slack.mutations import mutate_blocks_for_resolution
 from src.slack.personas import get_persona, post_agent_message
 from src.slack.router import ChannelTopologyRouter, resolve_target_persona
 from src.storage.db import (
+    create_task,
     extend_task_budget,
+    get_living_spec,
+    get_task,
     get_task_by_thread_ts,
     record_slack_event,
+    save_living_spec,
     update_task_status,
+    update_task_thread_ts,
 )
 from src.storage.session_manager import RehydratedContext, SessionManager
+from src.triggers.github_poller import GitHubPoller
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +54,16 @@ class SlackWarRoomBot:
         app_token: str | None = None,
         default_channel: str | None = None,
         db_path: str | None = None,
+        poller: GitHubPoller | None = None,
+        mira: MiraIntakeAgent | None = None,
     ):
         load_dotenv()
         self.bot_token = bot_token or os.getenv("SLACK_BOT_TOKEN")
         self.app_token = app_token or os.getenv("SLACK_APP_TOKEN")
         self.default_channel = default_channel or os.getenv("SLACK_CHANNEL_ID")
         self.db_path = db_path
+        self.poller = poller
+        self.mira = mira or MiraIntakeAgent(db_path=self.db_path)
         self.session_manager = SessionManager(db_path=self.db_path)
         self.channel_router = ChannelTopologyRouter.from_env()
         if self.default_channel:
@@ -103,6 +118,120 @@ class SlackWarRoomBot:
                         await call
         except Exception as e:
             logger.warning("Failed to mutate message in-place for %s: %s", action_id, e)
+
+    async def trigger_intake_flow(
+        self,
+        client: Any,
+        channel_id: str,
+        user_id: str,
+        user_name: str,
+        request_text: str,
+        existing_thread_ts: str | None = None,
+    ) -> str:
+        """
+        Triggers new task intake & grilling flow:
+        1. Formats clean title.
+        2. Creates draft issue on GitHub via agy CLI.
+        3. Initializes task and living spec in SQLite.
+        4. Spawns War-Room thread in target channel.
+        5. Generates Round 1 grilling questions and dispatches Mira with her persona avatar.
+        """
+        text = request_text.strip()
+        text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
+        if text.lower().startswith("solve "):
+            text = text[6:].strip()
+        elif text.lower().startswith("task:"):
+            text = text[5:].strip()
+        elif text.lower().startswith("!agent "):
+            text = text[7:].strip()
+        elif text.lower().startswith("/agent "):
+            text = text[7:].strip()
+
+        if not text:
+            text = "General engineering request"
+
+        first_line = text.splitlines()[0][:80].strip()
+        clean_title = first_line if first_line else "Autonomous Task"
+
+        # Create Draft Issue if poller available
+        issue_number = int(datetime.now(UTC).timestamp()) % 10000 + 100
+        if self.poller and self.poller.repo:
+            try:
+                draft_issue = self.poller.create_draft_issue(
+                    title=clean_title,
+                    body=text,
+                    labels=["triage:agent"],
+                )
+                issue_number = draft_issue.number
+            except Exception as e:
+                logger.warning("Failed to create draft issue via poller: %s", e)
+
+        issue_id = f"issue-{issue_number}"
+        task_id = f"task-{issue_id}-{int(datetime.now(UTC).timestamp())}"
+
+        create_task(
+            task_id=task_id,
+            issue_id=issue_id,
+            status="INTAKE",
+            db_path=self.db_path,
+        )
+        now_iso = datetime.now(UTC).isoformat()
+        save_living_spec(
+            LivingSpec(
+                task_id=task_id,
+                version=1,
+                requirements=[text],
+                architecture_decisions=[],
+                review_state={},
+                open_questions=[],
+                updated_at=now_iso,
+            ),
+            db_path=self.db_path,
+        )
+
+        target_channel = channel_id or self.get_channel("triage")
+        if existing_thread_ts:
+            thread_ts = existing_thread_ts
+            await client.chat_postMessage(
+                channel=target_channel,
+                thread_ts=thread_ts,
+                text=f"🎯 *New Task Intake Initialized:* `{issue_id}` - *{clean_title}*",
+            )
+        else:
+            root_res = await client.chat_postMessage(
+                channel=target_channel,
+                text=f"🎯 *New Task Intake:* `{issue_id}` - *{clean_title}* triggered by <@{user_id}>",
+            )
+            thread_ts = root_res.get("ts") or str(datetime.now(UTC).timestamp())
+
+        update_task_thread_ts(task_id, thread_ts, db_path=self.db_path)
+
+        record_slack_event(
+            event_type="agent_solve_command",
+            payload={
+                "task_id": task_id,
+                "issue_id": issue_id,
+                "request": text,
+                "user": user_name,
+            },
+            task_id=task_id,
+            user_id=user_id,
+            db_path=self.db_path,
+        )
+
+        # Mira initial grilling
+        mira_text, _ = await self.mira.generate_initial_grilling(
+            title=clean_title,
+            description=text,
+        )
+        await post_agent_message(
+            client=client,
+            channel=target_channel,
+            role="mira",
+            text=mira_text,
+            thread_ts=thread_ts,
+        )
+        return thread_ts
 
     def _init_bolt_app(self) -> None:
         """Configures Bolt AsyncApp and registers interactive listeners."""
@@ -353,10 +482,154 @@ class SlackWarRoomBot:
                 {"action": "request_revision", "approved": False, "user": user},
             )
 
-        # 5. Message Event: Thread steering listener
+        # 5. Action: Approve Spec & Acceptance Criteria
+        @self.app.action("approve_spec")
+        async def handle_approve_spec(ack, body, client):
+            await ack()
+            task_id = body["actions"][0]["value"]
+            user = body.get("user", {}).get("username", "Engineer")
+            user_id = body.get("user", {}).get("id", "")
+            channel = body.get("channel", {}).get("id", self.default_channel)
+            thread_ts = body.get("container", {}).get("thread_ts")
+
+            # Mutate message in-place to remove buttons
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="approve_spec",
+                user_id=user_id or user,
+            )
+
+            # Retrieve task and living spec
+            task = get_task(task_id, db_path=self.db_path) or {}
+            issue_id = task.get("issue_id", "")
+            living_spec = get_living_spec(task_id, db_path=self.db_path)
+
+            clean_title = (
+                (task.get("issue_id") or "Feature").replace("[Draft]", "").strip()
+            )
+            spec_data = self.mira.synthesize_acceptance_spec(
+                task_id=task_id,
+                issue_id=issue_id,
+                title=clean_title,
+                living_spec=living_spec or LivingSpec(task_id=task_id, updated_at=""),
+            )
+            spec_md = self.mira.format_github_issue_body(
+                spec_data, war_room_channel=channel, thread_ts=thread_ts
+            )
+
+            # Update GitHub issue and labels if poller configured
+            if self.poller and issue_id.startswith("issue-"):
+                try:
+                    issue_num = int(issue_id.replace("issue-", ""))
+                    self.poller.update_issue_spec(
+                        issue_num, title=spec_data.title, body=spec_md
+                    )
+                    self.poller.mark_ready_for_dev(issue_num)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to update GitHub issue for %s: %s", task_id, e
+                    )
+
+            update_task_status(task_id, "READY_FOR_DEV", db_path=self.db_path)
+            record_slack_event(
+                event_type="spec_approved",
+                payload={"task_id": task_id, "approved_by": user, "issue_id": issue_id},
+                task_id=task_id,
+                user_id=user_id,
+                db_path=self.db_path,
+            )
+
+            await post_agent_message(
+                client=client,
+                channel=channel,
+                role="mira",
+                text=(
+                    f"✅ *Requirements Finalized & Approved* by `{user}`!\n"
+                    f"• GitHub issue `{issue_id}` updated with clean markdown specification.\n"
+                    f"• Transitioned label to `status:ready-for-dev`.\n"
+                    f"• Handing off to *Arjun (Lead Architect)* for architectural design."
+                ),
+                thread_ts=thread_ts,
+            )
+
+            await post_agent_message(
+                client=client,
+                channel=channel,
+                role="arjun",
+                text=(
+                    f"📐 *Arjun (Lead Architect)* taking over task `{task_id}`.\n"
+                    f"• Reviewing agreed requirements from living spec.\n"
+                    f"• System architecture design & task decomposition in progress."
+                ),
+                thread_ts=thread_ts,
+            )
+            self.resolve_gate(
+                f"spec_{task_id}",
+                {
+                    "action": "approve_spec",
+                    "approved": True,
+                    "user": user,
+                    "spec": spec_data.model_dump(),
+                },
+            )
+
+        @self.app.action("request_spec_revision")
+        async def handle_request_spec_revision(ack, body, client):
+            await ack()
+            task_id = body["actions"][0]["value"]
+            user = body.get("user", {}).get("username", "Engineer")
+            user_id = body.get("user", {}).get("id", "")
+            channel = body.get("channel", {}).get("id", self.default_channel)
+            thread_ts = body.get("container", {}).get("thread_ts")
+
+            await self.mutate_message_in_place(
+                client=client,
+                channel=channel,
+                body=body,
+                action_id="request_spec_revision",
+                user_id=user_id or user,
+            )
+
+            record_slack_event(
+                event_type="spec_revision_requested",
+                payload={"task_id": task_id, "requested_by": user},
+                task_id=task_id,
+                user_id=user_id,
+                db_path=self.db_path,
+            )
+            await post_agent_message(
+                client=client,
+                channel=channel,
+                role="mira",
+                text=f"💬 *Spec Revision Requested* by `{user}`. Please leave your steering notes or additional edge cases in this thread.",
+                thread_ts=thread_ts,
+            )
+            self.resolve_gate(
+                f"spec_{task_id}",
+                {"action": "request_spec_revision", "approved": False, "user": user},
+            )
+
+        # 6. Slash Command: /agent
+        @self.app.command("/agent")
+        async def handle_agent_command(ack, body, client):
+            await ack()
+            text = body.get("text", "").strip()
+            user_id = body.get("user_id", "")
+            user_name = body.get("user_name", "Engineer")
+            channel_id = body.get("channel_id") or self.get_channel("triage")
+            await self.trigger_intake_flow(
+                client=client,
+                channel_id=channel_id,
+                user_id=user_id,
+                user_name=user_name,
+                request_text=text,
+            )
+
+        # 7. Message Event: Thread steering & grilling listener
         @self.app.event("message")
         async def handle_thread_message(event, client):
-            # Ignore bot messages and top-level channel root messages without thread_ts
             if event.get("bot_id") or event.get("subtype") == "bot_message":
                 return
 
@@ -364,10 +637,26 @@ class SlackWarRoomBot:
             text = event.get("text", "").strip()
             user_id = event.get("user", "")
 
-            if not thread_ts or not text:
+            if not text:
                 return
 
-            # Rehydrate task context from persistent storage
+            if not thread_ts:
+                # If message contains an @mention, app_mention handler already handles it
+                if re.search(r"<@[A-Z0-9]+>", text):
+                    return
+                clean = text.strip()
+                lower = clean.lower()
+                if lower.startswith(("solve ", "task:", "!agent ", "/agent ")):
+                    await self.trigger_intake_flow(
+                        client=client,
+                        channel_id=event.get("channel", self.default_channel),
+                        user_id=user_id,
+                        user_name=f"User_{user_id}",
+                        request_text=clean,
+                        existing_thread_ts=event.get("ts"),
+                    )
+                return
+
             rehydrated = self.session_manager.rehydrate(thread_ts)
             task_data = (
                 rehydrated.task
@@ -375,13 +664,59 @@ class SlackWarRoomBot:
                 else (get_task_by_thread_ts(thread_ts, db_path=self.db_path) or {})
             )
             task_id = task_data.get("task_id", thread_ts)
-            active_phase = task_data.get("status", "running")
+            active_phase = str(task_data.get("status", "running")).lower()
 
-            # Resolve responding persona via mention or active phase fallback
+            # Handle interactive intake grilling if in INTAKE or GRILLING phase
+            if active_phase in ("intake", "grilling"):
+                living_spec = get_living_spec(
+                    task_id, db_path=self.db_path
+                ) or LivingSpec(
+                    task_id=task_id,
+                    requirements=[],
+                    updated_at=datetime.now(UTC).isoformat(),
+                )
+                title = task_data.get("issue_id", "Feature")
+                mira_reply, is_complete, spec_data = await self.mira.process_reply(
+                    task_id=task_id,
+                    issue_id=task_data.get("issue_id", ""),
+                    title=title,
+                    user_reply=text,
+                    current_spec=living_spec,
+                )
+
+                if is_complete and spec_data:
+                    update_task_status(task_id, "GRILLING", db_path=self.db_path)
+                    blocks = build_spec_acceptance_blocks(
+                        task_id=task_id,
+                        issue_id=task_data.get("issue_id", ""),
+                        title=title,
+                        summary=spec_data.summary,
+                        acceptance_criteria=spec_data.acceptance_criteria,
+                        scope_and_boundaries=spec_data.scope_and_boundaries,
+                        out_of_scope=spec_data.out_of_scope,
+                    )
+                    await post_agent_message(
+                        client=client,
+                        channel=event.get("channel"),
+                        role="mira",
+                        text=mira_reply,
+                        thread_ts=thread_ts,
+                        blocks=blocks,
+                    )
+                else:
+                    await post_agent_message(
+                        client=client,
+                        channel=event.get("channel"),
+                        role="mira",
+                        text=mira_reply,
+                        thread_ts=thread_ts,
+                    )
+                return
+
+            # Default: Thread steering for ongoing tasks
             target_persona = resolve_target_persona(text, active_phase=active_phase)
             persona_info = get_persona(target_persona)
 
-            # Enqueue steering instruction
             if task_id not in self.steering_queues:
                 self.steering_queues[task_id] = asyncio.Queue()
             await self.steering_queues[task_id].put(text)
@@ -399,7 +734,6 @@ class SlackWarRoomBot:
                 db_path=self.db_path,
             )
 
-            # Add acknowledgment reaction and persona reply
             try:
                 await client.reactions_add(
                     channel=event.get("channel"),
@@ -409,7 +743,6 @@ class SlackWarRoomBot:
             except Exception as e:
                 logger.debug("Failed to add reaction to user message: %s", e)
 
-            # Post acknowledgment from resolved persona in the thread
             spec_suffix = (
                 f" [Living Spec v{rehydrated.living_spec.version} active]"
                 if rehydrated and rehydrated.living_spec
@@ -428,32 +761,65 @@ class SlackWarRoomBot:
                 thread_ts=thread_ts,
             )
 
-        # 6. App Mention Event: Top-level mentions
+        # 8. App Mention Event: Top-level mentions or thread mentions
         @self.app.event("app_mention")
         async def handle_app_mention(event, client):
             user_id = event.get("user", "")
             text = event.get("text", "")
             channel = event.get("channel", self.default_channel)
-            thread_ts = event.get("thread_ts") or event.get("ts")
+            thread_ts = event.get("thread_ts")
 
-            await client.reactions_add(
-                channel=channel,
-                name="rocket",
-                timestamp=event.get("ts"),
-            )
+            try:
+                await client.reactions_add(
+                    channel=channel,
+                    name="rocket",
+                    timestamp=event.get("ts"),
+                )
+            except Exception as e:
+                logger.debug("Failed to add rocket reaction: %s", e)
 
-            await post_agent_message(
-                client=client,
-                channel=channel,
-                role="orchestrator",
-                text=(
-                    f"🤖 *Antigravity Dev Team War-Room Online*\n"
-                    f'Hello <@{user_id}>! I received your mention: *"{text}"*\n'
-                    f"• Type replies in this thread to steer the swarm.\n"
-                    f"• Interactive Block Kit buttons appear automatically when human decisions or budget extensions are needed."
-                ),
-                thread_ts=thread_ts,
-            )
+            clean_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
+
+            # If inside an existing thread, delegate to thread message handler
+            if thread_ts:
+                event["text"] = clean_text
+                await handle_thread_message(event, client)
+                return
+
+            if not clean_text:
+                await post_agent_message(
+                    client=client,
+                    channel=channel,
+                    role="mira",
+                    text=(
+                        f"👋 Hi <@{user_id}>! I'm **Mira** (Product Specifier).\n"
+                        f"Tell me what feature you'd like to build, e.g.:\n"
+                        f"> `@antigravity_orchestra solve Implement token bucket rate limiter`\n"
+                        f"And I'll grill out edge cases and acceptance criteria before handing off to Arjun & Kabir."
+                    ),
+                    thread_ts=event.get("ts"),
+                )
+                return
+
+            # Top-level mention with a task request -> start live intake & grilling flow!
+            try:
+                await self.trigger_intake_flow(
+                    client=client,
+                    channel_id=channel,
+                    user_id=user_id,
+                    user_name=f"User_{user_id}",
+                    request_text=clean_text,
+                    existing_thread_ts=event.get("ts"),
+                )
+            except Exception as e:
+                logger.exception("Failed to trigger intake flow: %s", e)
+                await post_agent_message(
+                    client=client,
+                    channel=channel,
+                    role="mira",
+                    text=f"⚠️ Failed to initialize task intake: `{e}`",
+                    thread_ts=event.get("ts"),
+                )
 
     def register_gate(self, gate_id: str) -> asyncio.Event:
         """Register an async event gate for pausing execution until button is clicked."""

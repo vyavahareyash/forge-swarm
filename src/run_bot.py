@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from src.slack.bot import SlackWarRoomBot
 from src.storage.db import init_db
+from src.triggers.github_poller import GitHubPoller
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -40,11 +41,15 @@ async def main():
         logger.error("Missing SLACK_BOT_TOKEN or SLACK_APP_TOKEN in .env")
         sys.exit(1)
 
+    repo = os.getenv("GITHUB_REPO")
+    poller = GitHubPoller(repo=repo, db_path=db_path, use_agy=False) if repo else None
+
     bot = SlackWarRoomBot(
         bot_token=bot_token,
         app_token=app_token,
         default_channel=channel_id,
         db_path=db_path,
+        poller=poller,
     )
 
     logger.info("Starting live Slack War-Room Bot listener...")
