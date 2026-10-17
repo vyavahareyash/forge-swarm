@@ -73,6 +73,20 @@ class LivingSpec(BaseModel):
     updated_at: str
 
 
+class SpecAcceptanceData(BaseModel):
+    """Structured requirement specification prepared by Mira for human sign-off."""
+
+    task_id: str
+    issue_id: str
+    title: str
+    summary: str
+    scope_and_boundaries: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    open_questions_resolved: list[str] = Field(default_factory=list)
+    war_room_thread_ts: str | None = None
+
+
 class TurnRecord(BaseModel):
     turn_index: int
     persona: str

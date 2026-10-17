@@ -6,6 +6,7 @@ from src.slack.approvals import (
     build_budget_exhaustion_blocks,
     build_draft_pr_blocks,
     build_policy_gate_blocks,
+    build_spec_acceptance_blocks,
 )
 from src.slack.bot import SlackWarRoomBot
 from src.slack.mutations import build_audit_block, mutate_blocks_for_resolution
@@ -24,6 +25,7 @@ __all__ = [
     "build_budget_exhaustion_blocks",
     "build_policy_gate_blocks",
     "build_draft_pr_blocks",
+    "build_spec_acceptance_blocks",
     "SlackWarRoomBot",
     "mutate_blocks_for_resolution",
     "build_audit_block",

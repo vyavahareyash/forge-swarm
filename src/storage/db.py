@@ -99,6 +99,7 @@ def create_task(
     issue_id: Optional[str] = None,
     slack_thread_ts: Optional[str] = None,
     conversation_id: Optional[str] = None,
+    status: str = "RUNNING",
     budget_limit: int = 150_000,
     turn_limit: int = 15,
     db_path: Optional[str] = None,
@@ -115,13 +116,14 @@ def create_task(
                     task_id, issue_id, slack_thread_ts, conversation_id,
                     status, budget_limit, turn_limit, current_tokens, turn_count,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, 0, 0, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?);
                 """,
                 (
                     task_id,
                     issue_id,
                     slack_thread_ts,
                     conversation_id,
+                    status,
                     budget_limit,
                     turn_limit,
                     now,
@@ -470,3 +472,17 @@ def get_task_by_id_or_thread(identifier: str, db_path: Optional[str] = None) -> 
     if task:
         return task
     return get_task_by_thread_ts(identifier, db_path=db_path)
+
+
+def get_task_by_issue_id(issue_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Retrieve most recent task record by GitHub issue_id."""
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM tasks WHERE issue_id = ? ORDER BY created_at DESC LIMIT 1;",
+            (issue_id,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()

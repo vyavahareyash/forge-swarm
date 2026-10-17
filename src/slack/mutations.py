@@ -38,6 +38,10 @@ ACTION_METADATA: dict[str, dict[str, str]] = {
         "label": "Spec & Acceptance Criteria Approved",
         "icon": "✅",
     },
+    "request_spec_revision": {
+        "label": "Spec Revision Requested",
+        "icon": "💬",
+    },
     "approve_plan": {
         "label": "Architectural Plan Approved",
         "icon": "✅",

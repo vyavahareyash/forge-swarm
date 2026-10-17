@@ -8,7 +8,9 @@ the host machine's active Google AI subscription OAuth session with zero API key
 import asyncio
 import json
 import os
+import shlex
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -47,12 +49,19 @@ class AgyTurnResult:
 
 def find_agy_binary() -> str | None:
     """Find path to agy binary on host machine."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
     env_path = os.getenv("AGY_PATH")
-    if env_path and os.path.isfile(env_path) and os.access(env_path, os.X_OK):
+    if env_path and (os.path.isfile(env_path) or shutil.which(env_path)):
         return env_path
 
     which_path = shutil.which("agy")
-    if which_path and os.path.isfile(which_path) and os.access(which_path, os.X_OK):
+    if which_path and (os.path.isfile(which_path) or os.access(which_path, os.X_OK)):
         return which_path
 
     common_paths = [
@@ -63,17 +72,20 @@ def find_agy_binary() -> str | None:
         Path.home() / ".gemini" / "antigravity-cli" / "bin" / "agy",
     ]
     for p in common_paths:
-        if p.is_file() and os.access(str(p), os.X_OK):
+        if p.is_file():
             return str(p)
 
     return None
 
 
+_DEFAULT = object()
+
+
 class AgyRunner:
     """Invokes agy in headless print mode (-p) with JSON output."""
 
-    def __init__(self, agy_path: str | None = None):
-        self.agy_path = agy_path or find_agy_binary()
+    def __init__(self, agy_path: Any = _DEFAULT):
+        self.agy_path = find_agy_binary() if agy_path is _DEFAULT else agy_path
 
     def is_available(self) -> bool:
         return self.agy_path is not None
@@ -140,6 +152,108 @@ class AgyRunner:
 
         # Parse JSON output from stdout
         return self._parse_json_output(stdout_text)
+
+    @staticmethod
+    def _strip_code_fences(text: str) -> str:
+        """Strip markdown code fences from terminal command output."""
+        clean = text.strip()
+        if clean.startswith("```"):
+            lines = clean.splitlines()
+            if len(lines) >= 2 and lines[-1].strip() == "```":
+                return "\n".join(lines[1:-1]).strip()
+        return clean
+
+    async def execute_command(
+        self,
+        command: list[str] | str,
+        cwd: str | None = None,
+        timeout: float = 180.0,
+    ) -> str:
+        """
+        Directs agy agent to execute a terminal command using its agentic tool execution capabilities.
+        """
+        cmd_str = shlex.join(command) if isinstance(command, list) else command
+        prompt = (
+            f"Execute the following terminal command and return the exact output without explanation:\n"
+            f"```bash\n{cmd_str}\n```"
+        )
+        turn_result = await self.execute_turn(
+            prompt, workspace_dir=cwd, timeout=timeout
+        )
+        return self._strip_code_fences(turn_result.text)
+
+    def execute_command_sync(
+        self,
+        cmd: list[str] | str,
+        capture_output: bool = True,
+        text: bool = True,
+        cwd: str | None = None,
+        timeout: float = 180.0,
+        **kwargs: Any,
+    ) -> subprocess.CompletedProcess:
+        """
+        Synchronously executes a terminal command via agy CLI, returning CompletedProcess.
+        Compatible with subprocess.run signature for seamless GitHubPoller command runner substitution.
+        """
+        cmd_list = cmd if isinstance(cmd, list) else shlex.split(cmd)
+        cmd_str = shlex.join(cmd_list) if isinstance(cmd, list) else cmd
+
+        if not self.is_available():
+            return subprocess.run(
+                cmd,
+                capture_output=capture_output,
+                text=text,
+                cwd=cwd,
+                timeout=timeout,
+                check=False,
+            )
+
+        prompt = (
+            f"Execute the following terminal command and return the exact output without explanation:\n"
+            f"```bash\n{cmd_str}\n```"
+        )
+        proc_cmd = [
+            self.agy_path,  # type: ignore[list-item]
+            "-p",
+            prompt,
+            "--output-format",
+            "json",
+            "--dangerously-skip-permissions",
+        ]
+
+        try:
+            res = subprocess.run(
+                proc_cmd,
+                cwd=cwd or os.getcwd(),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except Exception as e:
+            return subprocess.CompletedProcess(
+                cmd_list,
+                returncode=1,
+                stdout="",
+                stderr=str(e),
+            )
+
+        if res.returncode != 0:
+            return subprocess.CompletedProcess(
+                cmd_list,
+                returncode=res.returncode,
+                stdout="",
+                stderr=res.stderr or res.stdout,
+            )
+
+        turn = self._parse_json_output(res.stdout)
+        clean_text = self._strip_code_fences(turn.text)
+        return subprocess.CompletedProcess(
+            cmd_list,
+            returncode=0,
+            stdout=clean_text,
+            stderr="",
+        )
 
     def _parse_json_output(self, stdout_text: str) -> AgyTurnResult:
         """Parse agy JSON output or fallback to text if plain response."""

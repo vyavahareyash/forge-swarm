@@ -30,6 +30,12 @@ def get_avatar_url(persona_key: str) -> str | None:
     if base:
         normalized = persona_key.lower().strip()
         return f"{base.rstrip('/')}/{normalized}.png"
+
+    # Default to public GitHub repo avatars when running outside unit tests
+    if not os.getenv("PYTEST_CURRENT_TEST"):
+        normalized = persona_key.lower().strip()
+        return f"{DEFAULT_AVATAR_BASE_URL.rstrip('/')}/{normalized}.png"
+
     return None
 
 

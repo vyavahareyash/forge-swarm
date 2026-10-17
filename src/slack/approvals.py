@@ -273,3 +273,151 @@ def build_draft_pr_blocks(
         ]
     )
     return blocks
+
+
+def build_spec_acceptance_blocks(
+    task_id: str,
+    issue_id: str,
+    title: str,
+    summary: str,
+    acceptance_criteria: list[str],
+    scope_and_boundaries: list[str] | None = None,
+    out_of_scope: list[str] | None = None,
+    user_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Constructs Block Kit UI for Mira's intake acceptance criteria card.
+    Provides [Approve & Start Implementation] and [Request Revisions] buttons.
+    """
+    target_user = user_id or os.getenv("SLACK_USER_ID")
+    clean_title = title.replace("[Draft]", "").strip()
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🎯 Requirements & Acceptance Criteria Sign-Off",
+                "emoji": True,
+            },
+        },
+    ]
+
+    if target_user:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"🔔 <@{target_user}> *Sign-off required:* Mira has finalized requirements for "
+                        f"*{clean_title}*. Review and approve to begin development."
+                    ),
+                },
+            }
+        )
+
+    blocks.extend(
+        [
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Task ID:*\n`{task_id}`",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Issue:*\n`{issue_id}`",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Feature:*\n*{clean_title}*",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": "*Intake Phase:*\n`GRILLING_COMPLETE` 📋",
+                    },
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Summary:*\n{summary}",
+                },
+            },
+        ]
+    )
+
+    # Acceptance Criteria
+    criteria_text = "\n".join(f"• [ ] {c}" for c in acceptance_criteria)
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Acceptance Criteria:*\n{criteria_text}",
+            },
+        }
+    )
+
+    # Boundaries
+    if scope_and_boundaries:
+        scope_text = "\n".join(f"• {s}" for s in scope_and_boundaries)
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Scope & Boundaries:*\n{scope_text}",
+                },
+            }
+        )
+
+    # Out of Scope
+    if out_of_scope:
+        oos_text = "\n".join(f"• {o}" for o in out_of_scope)
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Out of Scope:*\n{oos_text}",
+                },
+            }
+        )
+
+    # Action buttons
+    blocks.append(
+        {
+            "type": "actions",
+            "block_id": f"spec_gate_{task_id}",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🚀 Approve & Start Implementation",
+                        "emoji": True,
+                    },
+                    "style": "primary",
+                    "action_id": "approve_spec",
+                    "value": task_id,
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💬 Request Revisions",
+                        "emoji": True,
+                    },
+                    "style": "danger",
+                    "action_id": "request_spec_revision",
+                    "value": task_id,
+                },
+            ],
+        }
+    )
+
+    return blocks
