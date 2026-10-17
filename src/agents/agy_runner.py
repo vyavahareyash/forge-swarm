@@ -7,13 +7,17 @@ the host machine's active Google AI subscription OAuth session with zero API key
 
 import asyncio
 import json
+import logging
 import os
 import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class AgyNotInstalledError(RuntimeError):
@@ -116,6 +120,10 @@ class AgyRunner:
         ]
 
         cwd = workspace_dir or os.getcwd()
+        logger.info(
+            "[agy] Invoking headless agent (cwd=%s, timeout=%.0fs)...", cwd, timeout
+        )
+        t0 = time.perf_counter()
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -130,6 +138,7 @@ class AgyRunner:
             )
         except TimeoutError as err:
             proc.kill()
+            logger.error("[agy] Prompt execution timed out after %.0fs", timeout)
             raise TimeoutError(
                 f"agy prompt execution timed out after {timeout}s"
             ) from err
@@ -151,7 +160,17 @@ class AgyRunner:
             )
 
         # Parse JSON output from stdout
-        return self._parse_json_output(stdout_text)
+        res = self._parse_json_output(stdout_text)
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            "[agy] Agent turn completed in %.2fs (tokens: %d | prompt: %d, response: %d, thoughts: %d)",
+            elapsed,
+            res.total_tokens,
+            res.prompt_tokens,
+            res.candidates_tokens,
+            res.thoughts_tokens,
+        )
+        return res
 
     @staticmethod
     def _strip_code_fences(text: str) -> str:

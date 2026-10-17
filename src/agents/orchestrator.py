@@ -10,6 +10,7 @@ Autonomous 3-retry self-correction loop against isolated worktrees.
 """
 
 import asyncio
+import logging
 import os
 import re
 import shutil
@@ -38,6 +39,8 @@ from src.storage.db import (
 from src.storage.session_manager import SessionManager
 from src.worktree import WorktreeManager
 
+logger = logging.getLogger(__name__)
+
 
 class QASubAgent:
     """Sentinel: Runs tests in worktree and produces structured QATestReport."""
@@ -52,6 +55,7 @@ class QASubAgent:
             test_cmd
             or f"{sys.executable} -m pytest -c pyproject.toml -p no:deepeval tests/"
         )
+        logger.info("[Sentinel] Executing test suite in worktree: %s", cmd)
         env = {
             **os.environ,
             "PYTHONPATH": str(self.worktree_path),
@@ -82,6 +86,15 @@ class QASubAgent:
         p_count = int(match_passed.group(1)) if match_passed else 0
         f_count = int(match_failed.group(1)) if match_failed else 0
         total_tests = p_count + f_count
+
+        status_str = "PASSED" if passed else "FAILED"
+        logger.info(
+            "[Sentinel] Test results: %s (%d passed, %d failed out of %d)",
+            status_str,
+            p_count,
+            f_count,
+            total_tests,
+        )
 
         failure_summary = None if passed else full_output
 
@@ -128,6 +141,12 @@ class CoderSubAgent:
     ) -> tuple[str, int]:
         """Analyzes failure and edits target files inside worktree."""
         tokens_spent = 1500 + (attempt * 200)
+        logger.info(
+            "[Forge] Applying code changes (attempt %d, mode=%s, target_files=%s)...",
+            attempt,
+            mode,
+            failure_report.suggested_fix_files,
+        )
 
         if mode == "agy" and self.runner and self.runner.is_available():
             prompt = (
@@ -318,6 +337,14 @@ class Orchestrator:
             nonlocal total_tokens, turn_counter
             turn_counter += 1
             total_tokens += tokens
+            logger.info(
+                "[%s] %s | Thinking: %s | Spent: %d tokens (Total: %d)",
+                persona,
+                action,
+                thinking_level,
+                tokens,
+                total_tokens,
+            )
             turn_log = SwarmTurnLog(
                 persona=persona,
                 role=role,
@@ -364,14 +391,23 @@ class Orchestrator:
         runner = AgyRunner(agy_bin) if agy_bin else None
 
         # 1. Provision isolated worktree
+        logger.info(
+            ">>> [Worktree] Provisioning isolated worktree for %s (branch: %s)...",
+            issue_id,
+            branch_name,
+        )
         worktree_path = self.wm.create_worktree(
             repo_path=repo_path,
             issue_id=issue_id,
             branch_name=branch_name,
         )
+        logger.info(">>> [Worktree] Ready at %s", worktree_path)
 
         try:
             # 2. Atlas Planning Turn
+            logger.info(
+                ">>> [Atlas] Formulating implementation strategy for %s...", issue_id
+            )
             plan, plan_tokens = await self.plan_task(
                 issue_id, issue_desc, mode=mode, runner=runner
             )
@@ -413,9 +449,19 @@ class Orchestrator:
             # 4. Self-Correction Loop
             retries = 0
             final_report = report
+            if not final_report.passed:
+                logger.info(
+                    ">>> [Swarm] Baseline tests failed. Entering self-correction loop (max %d retries)...",
+                    max_retries,
+                )
 
             while not final_report.passed and retries < max_retries:
                 retries += 1
+                logger.info(
+                    ">>> [Self-Correction] Starting cycle %d/%d (Forge patch -> Sentinel re-test)...",
+                    retries,
+                    max_retries,
+                )
 
                 # Forge Coder Turn
                 fix_msg, coder_tokens = await coder_agent.apply_fix(
@@ -446,12 +492,18 @@ class Orchestrator:
                 )
 
                 if final_report.passed:
+                    logger.info(
+                        ">>> [Swarm] Verification PASSED on attempt %d!", retries
+                    )
                     break
 
             # 5. Final status and commit
             git_diff = ""
             if final_report.passed:
                 status = "SUCCESS"
+                logger.info(
+                    ">>> [Worktree] Committing verified changes to %s...", branch_name
+                )
                 self.wm.commit_changes(
                     worktree_path, f"fix({issue_id}): resolve defect verified by QA"
                 )
@@ -459,6 +511,9 @@ class Orchestrator:
                 update_task_status(task_id, "COMPLETED", db_path=self.db_path)
             else:
                 status = "FAILED"
+                logger.warning(
+                    ">>> [Swarm] Verification FAILED after %d retries.", retries
+                )
                 update_task_status(task_id, "FAILED", db_path=self.db_path)
 
             living_spec.review_state = {
@@ -500,4 +555,5 @@ class Orchestrator:
 
         finally:
             if cleanup_worktree:
+                logger.info(">>> [Worktree] Cleaning up %s...", worktree_path)
                 self.wm.remove_worktree(repo_path, worktree_path, force=True)

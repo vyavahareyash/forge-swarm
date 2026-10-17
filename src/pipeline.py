@@ -151,6 +151,12 @@ class E2EPipeline:
 
             # Define turn callback to stream updates to Slack thread
             async def stream_turn_to_slack(turn: SwarmTurnLog):
+                logger.info(
+                    ">>> [Swarm Step] %s: %s (tokens: %d)",
+                    turn.persona,
+                    turn.action,
+                    turn.tokens_spent,
+                )
                 if on_status_update:
                     on_status_update("SWARM_TURN", {"turn": turn.model_dump()})
                 if self.bot and thread_ts and self.bot.app:
@@ -180,6 +186,9 @@ class E2EPipeline:
             if on_status_update:
                 on_status_update("SWARM_EXECUTING", {"task_id": task_id})
 
+            logger.info(
+                ">>> [Pipeline] Launching Swarm Orchestrator for %s...", issue_id
+            )
             swarm_result = await self.orchestrator.run_task(
                 issue_id=issue_id,
                 issue_desc=f"{issue.title}\n{issue.body}",
@@ -225,6 +234,10 @@ class E2EPipeline:
 
             approved = auto_approve_pr
             if not auto_approve_pr and self.bot and thread_ts:
+                logger.info(
+                    ">>> [Approval Gate] Verification clean. Waiting for engineer sign-off in Slack thread %s...",
+                    thread_ts,
+                )
                 pr_blocks = build_draft_pr_blocks(
                     task_id=task_id,
                     issue_id=issue_id,
@@ -243,10 +256,17 @@ class E2EPipeline:
                 gate_id = f"pr_{task_id}"
                 decision = await self.bot.wait_for_decision(gate_id, timeout=300.0)
                 approved = bool(decision and decision.get("approved"))
+                logger.info(
+                    ">>> [Approval Gate] Decision received: approved=%s", approved
+                )
 
             # 6. Push Branch & Create Draft PR upon Approval
             pr_url = None
             if approved:
+                logger.info(
+                    ">>> [PR Delivery] Approved! Pushing branch %s and creating GitHub Draft PR...",
+                    branch_name,
+                )
                 if on_status_update:
                     on_status_update("DELIVERING_PR", {"branch": branch_name})
 
